@@ -1,36 +1,36 @@
-Writing a "bare metal" operating system for Raspberry Pi 4 (Part 13)
+为 Raspberry Pi 4 编写「裸机」操作系统（第十三部分）
 ====================================================================
 
-[< Go back to part12-wgt](../part12-wgt)
+[< 返回part12-wgt](../part12-wgt)
 
-What are interrupts?
+什么是中断？
 --------------------
-If you've spent any time looking at the Bluetooth code in these tutorials, you'll notice we're always "polling" for updates. In fact, in _part11-breakout-smp_ we tie up an entire core just waiting around for something to happen. This clearly isn't the best use of CPU time. Fortunately, the world solved that problem for us years ago with _interrupts_.
+如果你花时间查看这些教程中的蓝牙代码，你会注意到我们总是在"轮询"更新。事实上，在_part11-breakout-smp_中，我们占用了整个核心只是为了等待事情发生。这显然不是CPU时间的最佳利用。幸运的是，世界多年前就用_中断_为我们解决了这个问题。
 
-Ideally, we want to tell a piece of hardware to do something and have it simply notify us when the work is complete so we can move on with our lives in the meantime. These notifications are known as _interrupts_ because they disrupt normal program execution and force the CPU to immediately run an _interrupt handler_.
+理想情况下，我们希望告诉一个硬件去做某事，当工作完成时简单地通知我们，这样我们就可以在这段时间里继续我们的生活。这些通知被称为_中断_，因为它们中断正常的程序执行并强制CPU立即运行_中断处理程序_。
 
-The simplest device that interrupts
+最简单的中断设备
 -----------------------------------
-One useful piece of built-in hardware is a system timer, which can be programmed to interrupt at regular intervals e.g. every second. You'll need this if you want to schedule multiple processes to run on a single core e.g. using the principle of time slicing.
+一个有用的内置硬件是系统计时器，可以对其进行编程以定期中断，例如每秒一次。如果你想在单个核心上调度多个进程运行，例如使用时间切片原则，你将需要这个。
 
-For now, however, we're simply going to learn how to program the timer and respond to its interrupts.
+然而，目前我们只是要学习如何编程计时器并响应其中断。
 
-The codebase
+代码库
 ------------
-Let me quickly explain what you're looking at in the _part13-interrupts_ code:
+让我快速解释一下你在_part13-interrupts_代码中看到的内容：
 
- * _boot/_ : the same _boot_ code directory from _part12-wgt_
- * _include/_ : some useful headers copied directly from _part11-multicore_ 
- * _lib/_ : some useful libraries copied directly from _part11-multicore_
- * _kernel/_ : the only new code we need to concern ourselves with in this tutorial
+* _boot/_ : 来自_part12-wgt_的相同_boot_代码目录
+* _include/_ : 直接从_part11-multicore_复制的一些有用的头文件
+* _lib/_ : 直接从_part11-multicore_复制的一些有用的库
+* _kernel/_ : 本教程中我们需要关注的唯一新代码
 
-Please note: I have also done some work to tidy up the _Makefile_ and respect this directory structure, but nothing to write home about!
+请注意：我也做了一些工作来整理_Makefile_并尊重这个目录结构，但没什么值得大书特书的！
 
-The new code
+新代码
 ------------
-You'll recognise a lot of _kernel.c_ from _part10-multicore_, except instead of showing four cores at work and playing sound, we're now only using core 0 & 1 and, in addition, making use of two timer interrupts to show four progress bars. So, the `main()` routine kicks off core 1, sets up the timers, and then finally kicks off core 0's workload.
+你会从_part10-multicore_中认出很多_kernel.c_，除了现在我们只使用核心0和1，并且另外利用两个计时器中断来显示四个进度条。所以，`main()`例程启动核心1，设置计时器，然后最后启动核心0的工作负载。
 
-The timers are set up using these calls:
+使用这些调用设置计时器：
 
 ```c
 irq_init_vectors();
@@ -40,13 +40,13 @@ irq_enable();
 timer_init();
 ```
 
-Initialising the exception vector table
+初始化异常向量表
 ---------------------------------------
-In fact, interrupts are a more specific kind of _exception_ - something that, when "raised", needs the immediate attention of the processor. A perfect example of when an exception might occur is when bad code tries to do something "impossible" e.g. divide by zero. The CPU needs to know how to respond when/if this happens i.e. jump to an address of some code to run which handles this exception gracefully e.g. by printing an error to the screen. These addresses are stored in an _exception vector table_.
+实际上，中断是一种更具体的_异常_——当"触发"时，需要处理器立即关注的事情。异常可能发生的一个完美例子是当错误代码尝试做一些"不可能"的事情时，例如除以零。CPU需要知道如何响应何时/如果发生这种情况，即跳转到要运行的某些代码的地址来优雅地处理此异常，例如通过向屏幕打印错误。这些地址存储在_异常向量表_中。
 
-_irqentry.S_ sets up a list called `vectors` which contains individual _vector entries_. These vector entries are simply jump instructions to handler code.
+_irqentry.S_设置一个名为`vectors`的列表，其中包含各个_向量条目_。这些向量条目只是跳转到处理程序代码的跳转指令。
 
-The CPU is told where this exception vector table is stored during the `irq_init_vectors()` call from `main()` in _kernel.c_. You'll find this code in _utils.S_:
+在_kernel.c_中的`main()`调用`irq_init_vectors()`期间，CPU被告知此异常向量表存储在哪里。你可以在_utils.S_中找到此代码：
 
 ```c
 irq_init_vectors:
@@ -55,13 +55,13 @@ irq_init_vectors:
     ret
 ```
 
-It simply sets the Vector Base Address Register to the address of the `vectors` list.
+它只是将向量基地址寄存器设置为`vectors`列表的地址。
 
-Interrupt handling
+中断处理
 ------------------
-The only vector entry we really care about for the purposes of this tutorial is `handle_el1_irq`. This is a generic handler for any interrupt request (IRQ) that comes in at EL1 (kernel execution level).
+就本教程而言，我们真正关心的唯一向量条目是`handle_el1_irq`。这是对在EL1（内核执行级别）传入的任何中断请求（IRQ）的通用处理程序。
 
-If you do want a deeper understanding, I highly recommend reading s-matyukevich's work [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/docs/lesson03/rpi-os.md).
+如果你确实想要更深入的理解，我强烈推荐阅读s-matyukevich的工作[这里](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/docs/lesson03/rpi-os.md)。
 
 ```c
 handle_el1_irq:
@@ -70,9 +70,9 @@ handle_el1_irq:
 	kernel_exit
 ```
 
-Put simply, `kernel_entry` saves the register state before the interrupt handler runs, and `kernel_exit` restores this register state before we return. As we're _interrupting_ normal program execution, we want to be sure that we put things back to how they were so that nothing unpredictable happens as our kernel code resumes.
+简单来说，`kernel_entry`在中断处理程序运行之前保存寄存器状态，`kernel_exit`在我们返回之前恢复此寄存器状态。当我们_中断_正常程序执行时，我们希望确保将事情恢复到原来的状态，以便当我们的内核代码恢复时不会发生不可预测的事情。
 
-In the middle we simply call a function called `handle_irq()` which is written in the C language in _irq.c_. Its purpose is to look more closely at the interrupt request, figure out what device was responsible for generating an interrupt, and run the right sub-handler:
+在中间，我们只是调用一个名为`handle_irq()`的函数，该函数在_irq.c_中用C语言编写。它的目的是更仔细地查看中断请求，找出是哪个设备负责生成中断，并运行正确的子处理程序：
 
 ```c
 void handle_irq() {
@@ -94,13 +94,13 @@ void handle_irq() {
 }
 ```
 
-As you can see, we're handling two different timer interrupts in this code. In fact, `handle_timer_1()` and `handle_timer_3()` are implemented in _kernel.c_ and serve to demonstrate that the timer has fired by incrementing a progress counter and updating a graphical representation of its value. Timer 3 is configured to progress at 4 times the speed of Timer 1.
+如你所见，我们在此代码中处理两个不同的计时器中断。实际上，`handle_timer_1()`和`handle_timer_3()`在_kernel.c_中实现，通过增加进度计数器并更新其值的图形表示来演示计时器已触发。计时器3配置为以计时器1的4倍速度运行。
 
-The interrupt controller
+中断控制器
 ------------------------
-The interrupt controller is the hardware responsible for telling the CPU about interrupts as they occur. We can use the interrupt controller to act as a gatekeeper and allow/block (or enable/disable) interrupts. We can also use it to figure out which device generated the interrupt, as we did in `handle_irq()`.
+中断控制器是负责在中断发生时通知CPU的硬件。我们可以使用中断控制器作为看门狗，允许/阻止（或启用/禁用）中断。我们也可以使用它来找出哪个设备生成了中断，就像我们在`handle_irq()`中所做的那样。
 
-In `enable_interrupt_controller()`, called from `main()` in _kernel.c_, we allow the Timer 1 and Timer 3 interrupts through and in `disable_interrupt_controller()` we block all interrupts:
+在`enable_interrupt_controller()`中（从_kernel.c_中的`main()`调用），我们允许计时器1和计时器3中断通过，在`disable_interrupt_controller()`中我们阻止所有中断：
 
 ```c
 void enable_interrupt_controller() {
@@ -112,15 +112,15 @@ void disable_interrupt_controller() {
 }
 ```
 
-Masking/unmasking interrupts
+屏蔽/取消屏蔽中断
 ----------------------------
-To begin receiving interrupts, we need to take one more step: unmasking all types of interrupts.
+要开始接收中断，我们需要再走一步：取消屏蔽所有类型的中断。
 
-Masking is a technique used by the CPU to prevent a particular piece of code from being stopped in its tracks by an interrupt. It's used to protect important code that *must* complete. Imagine what would happen if our `kernel_entry` code (that saves register state) was interrupted halfway through! In this case, the register state would be overwritten and lost. This is why the CPU automatically masks all interrupts when an exception handler is executed.
+屏蔽是CPU用来防止特定代码被中断停止的技术。它用于保护*必须*完成的重要代码。想象一下，如果我们的`kernel_entry`代码（保存寄存器状态）在中途被中断会发生什么！在这种情况下，寄存器状态将被覆盖并丢失。这就是为什么CPU在执行异常处理程序时自动屏蔽所有中断。
 
-The `irq_enable` and `irq_disable` functions in _utils.S_ are responsible for masking and unmasking interrupts.
+_utils.S_中的`irq_enable`和`irq_disable`函数负责屏蔽和取消屏蔽中断。
 
-They are helped by the `irq_barrier` function which ensures that the `enable_interrupt_controller()` call properly finishes before the `irq_enable()` call is made:
+`irq_barrier`函数帮助它们确保`enable_interrupt_controller()`调用在`irq_enable()`调用之前正确完成：
 
 ```c
 .globl irq_enable
@@ -139,26 +139,26 @@ irq_barrier:
     ret
 ```
 
-As soon as `irq_enable()` is called from `main()` in _kernel.c_, the timer handler is run when the timer interrupt fires. Well, sort of...!
+一旦从_kernel.c_中的`main()`调用`irq_enable()`，当计时器中断触发时，计时器处理程序就会运行。嗯，差不多！
 
-Initialising the system timer
+初始化系统计时器
 -----------------------------
-We still need to initialise the timer.
+我们仍然需要初始化计时器。
 
-The RPi4's system timer couldn't be simpler. It has a counter which increases by 1 with each clock tick. It then has 4 interrupt lines (0 & 2 reserved for the GPU, 1 & 3 used by us in this tutorial!) with 4 corresponding compare registers. When the value of the counter becomes equal to a value in one of the compare registers, the corresponding interrupt is fired.
+RPi4的系统计时器再简单不过了。它有一个计数器，每个时钟滴答增加1。然后它有4个中断线（0和2保留给GPU，本教程中我们使用1和3！），带有4个相应的比较寄存器。当计数器的值变得等于其中一个比较寄存器中的值时，相应的中断就会触发。
 
-So before we receive any timer interrupts, we must also set the right compare registers to have a non-zero value. The `timer_init()` function (called from `main()` in _kernel.c_) gets the current timer value, adds the timer interval and sets the compare register to that total, so when the right number of clock ticks pass, the interrupt fires. It does this for both Timer 1 and Timer 3, setting Timer 3 to run 4 times as fast.
+因此，在我们接收任何计时器中断之前，我们还必须将正确的比较寄存器设置为非零值。`timer_init()`函数（从_kernel.c_中的`main()`调用）获取当前计时器值，添加计时器间隔，并将比较寄存器设置为该总和，因此当正确数量的时钟滴答过去时，中断就会触发。它对计时器1和计时器3都这样做，将计时器3设置为以4倍速度运行。
 
-Handling the timer interrupts
+处理计时器中断
 -----------------------------
-This is the simplest bit.
+这是最简单的部分。
 
-We update the compare register so the next interrupt will be generated after the same interval again. Importantly we then acknowledge the interrupt by setting the right bit of the Control Status register.
+我们更新比较寄存器，以便下一次中断将在相同的间隔后再次生成。重要的是，我们然后通过设置控制状态寄存器的正确位来确认中断。
 
-Then we update the screen to show our progress!
+然后我们更新屏幕以显示我们的进度！
 
-_And... hey presto! You're handling two system timer interrupts like a pro!_
+_然后...嘿 presto！你就像专业人士一样处理两个系统计时器中断！_
 
-![Timers firing on all cylinders on the Raspberry Pi 4](images/13-interrupts-running.jpg)
+![计时器在Raspberry Pi 4上全力运行](images/13-interrupts-running.jpg)
 
-[Go to part14-spi-ethernet >](../part14-spi-ethernet)
+[前往part14-spi-ethernet >](../part14-spi-ethernet)

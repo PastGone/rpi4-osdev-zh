@@ -1,56 +1,56 @@
-Writing a "bare metal" operating system for Raspberry Pi 4 (Part 12)
+为 Raspberry Pi 4 编写「裸机」操作系统（第十二部分）
 ====================================================================
 
-[< Go back to part11-breakout-smp](../part11-breakout-smp)
+[< 返回part11-breakout-smp](../part11-breakout-smp)
 
-Porting the WordUp Graphics Toolkit
+移植WordUp图形工具包
 -----------------------------------
-Back in the mid-1990s (when I was young!), programmers who wanted to build their own games didn't have rich frameworks like Unity. Perhaps the closest we got was the WordUp Graphics Toolkit, which I came across on the Hot Sound & Vision CD-ROM - a BBS archive. If you have a moment, perhaps use Google to see what "bulletin board systems" were... nostaglia awaits!
+回到20世纪90年代中期（我年轻的时候！），想要构建自己游戏的程序员没有像Unity这样丰富的框架。我们最接近的可能是WordUp Graphics Toolkit，我在Hot Sound & Vision CD-ROM（一个BBS存档）上偶然发现了它。如果你有时间，也许用谷歌搜索一下什么是"公告板系统"...怀旧在等待着你！
 
-Much like my very simple _fb.c_, the WGT provides a library of graphics routines which can be depended upon for reuse. This library, however, is much more fully-fledged than mine, and makes it easy to build sprite-based games (like Breakout, Space Invaders, Pacman etc.).
+就像我非常简单的_fb.c_一样，WGT提供了一个图形例程库，可以依赖它进行重用。然而，这个库比我的库更完善，并且可以轻松构建基于精灵的游戏（如打砖块、太空侵略者、吃豆人等）。
 
-The directory structure
+目录结构
 -----------------------
-As I port the WGT to my OS (a.k.a. make it work on my OS), I am using the following directories:
+当我将WGT移植到我的操作系统（也就是让它在我的操作系统上工作）时，我使用以下目录：
 
- * _bin/_ : for WGT binary files (fonts, sprites, bitmaps etc.)
- * _controller-ios/_ : a sample Swift BLE controller for the iOS platform
- * _controller-node/_ : a sample Node.js BLE controller 
- * _include/_ : now contains _wgt.h_ and _wgtspr.h_ too (header files necessary for WGT code)
- * _samples/_ : sample "kernels" for my OS which exercise certain WGT library functions. To build them, copy one of these (and only one at a time) to the same directory as the _Makefile_.
- * _wgt/_ : the library itself. Where possible, I have stayed true to the original code, but do bear in mind it was written for the x86 architecture and we're on AArch64!
+* _bin/_ : 用于WGT二进制文件（字体、精灵、位图等）
+* _controller-ios/_ : 用于iOS平台的示例Swift BLE控制器
+* _controller-node/_ : 示例Node.js BLE控制器
+* _include/_ : 现在也包含_wgt.h_和_wgtspr.h_（WGT代码所需的头文件）
+* _samples/_ : 我的操作系统的示例"内核"，用于测试某些WGT库函数。要构建它们，将其中一个（一次只能复制一个）复制到_Makefile_所在的目录。
+* _wgt/_ : 库本身。在可能的情况下，我保持了原始代码的真实性，但请记住它是为x86架构编写的，而我们在AArch64上！
 
-Please note: I am neither a Node.js developer, nor a Swift developer, and so the controllers are purely samples that serve my purpose. They are not intended to be exemplars! I am very aware of the multitudinous problems with both...
+请注意：我既不是Node.js开发人员，也不是Swift开发人员，所以控制器纯粹是满足我目的的示例。它们不旨在成为范例！我非常清楚两者都存在众多问题...
 
-Building
+构建
 --------
-So... to build the first WGT sample simply type `cp samples/wgt01.c .` from the top-level directory, and then type `make`. When you boot with the generated _kernel8.img_ you will see the screen go into 320x200 (VGA!) mode and draw a white line from corner to corner. If you do, the library is doing its stuff!
+所以...要构建第一个WGT示例，只需从顶层目录输入`cp samples/wgt01.c .`，然后输入`make`。当你使用生成的_kernel8.img_启动时，你会看到屏幕进入320x200（VGA！）模式，并从一个角到另一个角画一条白线。如果你看到了，说明库正在正常工作！
 
-boot/boot.S changes
+boot/boot.S更改
 -------------------
-We're still booting into a multicore environment (just in case we need it). There are a few significant changes to _boot/boot.S_ though. They are:
+我们仍然启动到多核环境中（以防我们需要它）。不过_boot/boot.S_有一些重大变化。它们是：
 
- * Enable FPU (floating-point unit) access so we can do non-integer mathematics
- * Switch from EL3 (supervisor exception level) down to EL1 (kernel exception level), disabling the MMU all the same
- * Move the addresses for the `spin_cpu` variables to accommodate a larger _boot.S_
- * Implement a `get_el` function to check which exception level we're at (for debug mainly)
+* 启用FPU（浮点单元）访问，以便我们可以进行非整数数学运算
+* 从EL3（超级visor异常级别）切换到EL1（内核异常级别），同时禁用MMU
+* 移动`spin_cpu`变量的地址以适应更大的_boot.S_
+* 实现`get_el`函数来检查我们处于哪个异常级别（主要用于调试）
 
-Using the iOS BLE controller
+使用iOS BLE控制器
 ----------------------------
-To use the iOS BLE controller instead of the Node.JS controller, ensure that you have:
+要使用iOS BLE控制器而不是Node.JS控制器，请确保在_wgt/mouse.c_和_lib/bt.c_的顶部都有：
 
 ```c
 #define IOS_CONTROL
 ```
 
-at the top of each of _wgt/mouse.c_ and _lib/bt.c_. Without this `#define`, the code will be looking for the Node.JS controller (so remove these lines if that's what you want!).
+没有这个`#define`，代码将寻找Node.JS控制器（所以如果你想要那个，请删除这些行！）。
 
-Work in progress!
+进行中的工作！
 -----------------
-There's always more that can be done, but I do think this was a good exercise in exploring the joy of getting other people's code to run on your own OS! It's quite a thrill.
+总有更多的事情可以做，但我确实认为这是一个很好的练习，可以探索让别人的代码在你自己的操作系统上运行的乐趣！这相当令人兴奋。
 
-_Do have a go at building some of the samples (hint: wgt20 and wgt60 are super fun!)..._
+_尝试构建一些示例（提示：wgt20和wgt60超级有趣！）..._
 
-I'm going to move on from here now so we can continue to make progress on the OS itself.
+现在我要从这里继续前进，以便我们可以继续在操作系统本身上取得进展。
 
-[Go to part13-interrupts >](../part13-interrupts)
+[前往part13-interrupts >](../part13-interrupts)

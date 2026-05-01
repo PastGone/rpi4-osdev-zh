@@ -1,37 +1,37 @@
-Writing a "bare metal" operating system for Raspberry Pi 4 (Part 11)
+为 Raspberry Pi 4 编写「裸机」操作系统（第十一部分）
 ====================================================================
 
-[< Go back to part10-multicore](../part10-multicore)
+[< 返回part10-multicore](../part10-multicore)
 
-Putting it all together
+整合所有内容
 -----------------------
-Frankly, I'm unlikely to write much documentation for this part. I'm also only providing a Clang _Makefile_ for now. If you're using gcc, have a go at putting your own _Makefile_ together, referencing the previous parts.
+坦率地说，我不太可能为这部分写太多文档。我现在也只提供一个Clang的_Makefile_。如果你使用gcc，请尝试参考之前的部分自己编写_Makefile_。
 
-This part simply builds on the work we've done so far, and delivers a new Breakout codebase with:
+这部分只是在我们到目前为止所做的工作基础上构建，并提供了一个新的打砖块代码库，具有：
 
- * Gameplay running in the foreground on the main CPU core 0
- * Graphics updated in the background on CPU core 1
- * Looped 8-bit music playing in the background on CPU core 2
- * Bluetooth communications managed in the background on CPU core 3
+* 游戏玩法在主CPU核心0上的前台运行
+* 图形在CPU核心1上的后台更新
+* 循环播放的8位音乐在CPU核心2上的后台播放
+* 蓝牙通信在CPU核心3上的后台管理
 
-I've taken the opportunity to organise the code a little better and so you'll see some changes to the _Makefile_, and a new directory structure in place. Tidy codebase = tidy mind!
+我借此机会更好地组织了代码，所以你会看到_Makefile_有一些变化，并且有一个新的目录结构。整洁的代码库 = 整洁的头脑！
 
-Important takeaway
+重要收获
 ------------------
-As you read through this code, you'll maybe notice that a very different style has emerged. Multi-processing adds a dimension of complexity when coding and requires a total mindset shift.
+当你阅读这段代码时，你可能会注意到出现了一种非常不同的风格。多处理在编码时增加了一层复杂性，需要完全转变思维方式。
 
-There's a lot more signalling/semaphores, so the cores can be sure they're doing the right thing at the right time.
+有更多的信号/信号量，所以核心可以确保它们在正确的时间做正确的事情。
 
-You're no longer "dry-running" a single, sequential thread. You're having to spot the potential for bugs/unexpected behaviour from the interplay of four concurrent threads!
+你不再是"试运行"一个单一的、顺序的线程。你必须发现四个并发线程相互作用时可能出现的错误/意外行为！
 
-_Good luck as you explore the code!_
+_祝你在探索代码时好运！_
 
-Progress video
+进度视频
 --------------
-Click to watch a quick video of the game in action.
+点击观看游戏运行的快速视频。
 
 https://user-images.githubusercontent.com/68182575/173157526-2b22f9b2-0f55-42a0-87e1-b8278930fefe.mp4
 
-PS: Sorry for the bad audio quality - the game itself sounds great in real life, I promise!
+PS：抱歉音频质量不好 - 游戏本身在现实生活中听起来很棒，我保证！
 
-[Go to part12-wgt >](../part12-wgt)
+[前往part12-wgt >](../part12-wgt)

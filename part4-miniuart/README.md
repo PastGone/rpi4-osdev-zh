@@ -1,75 +1,75 @@
-Writing a "bare metal" operating system for Raspberry Pi 4 (Part 4)
+为 Raspberry Pi 4 编写「裸机」操作系统（第四部分）
 ===================================================================
 
-[< Go back to part3-helloworld](../part3-helloworld)
+[< 返回part3-helloworld](../part3-helloworld)
 
-Memory-Mapped I/O
+内存映射I/O
 -----------------
 
-We have our "Hello world!" example up and running. Let's just take a little time to explain the concepts that _io.c_ is using to send this message over the UART to our dev machine.
+我们的"Hello world!"示例已经启动并运行。让我们花一点时间解释_io.c_用于通过UART向开发机器发送此消息的概念。
 
-We started with the UART for a reason - it's a (relatively) simple piece of hardware to talk to because it uses **memory-mapped I/O** (MMIO). That means we can talk directly to the hardware by reading from and writing to a set of predetermined memory addresses on the RPi4. We can write to different addresses to influence the hardware's behaviour in different ways.
+我们从UART开始是有原因的——它是一个（相对）简单的硬件，因为它使用**内存映射I/O**（MMIO）。这意味着我们可以通过读取和写入RPi4上一组预定的内存地址直接与硬件对话。我们可以写入不同的地址以不同方式影响硬件的行为。
 
-These memory addresses start at `0xFE000000` (our `PERIPHERAL_BASE`).
+这些内存地址从`0xFE000000`开始（我们的`PERIPHERAL_BASE`）。
 
-Note: you might wonder why this base address differs from the one shown throughout the [BCM2711 ARM Peripherals document](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2711/rpi_DATA_2711_1p0.pdf). It's because the RPi4 boots into Low Peripheral Mode by default. This maps the peripherals over the last 64mb of RAM, therefore they're "visible to the ARM at 0x0_FEnn_nnnn".
+注意：你可能想知道为什么这个基地址与[BCM2711 ARM外设文档](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2711/rpi_DATA_2711_1p0.pdf)中显示的不同。这是因为RPi4默认启动到低外设模式。这将外设映射到RAM的最后64MB，因此它们"在0x0_FEnn_nnnn处对ARM可见"。
 
-People might wish to enable High Peripheral mode (full 35-bit address map) so as to avoid "losing" that last 64mb of RAM. There are various side effects, however, of doing this and it would require some refactoring of the kernel (even in this simple tutorial) to make it work.
+人们可能希望启用高外设模式（完整的35位地址映射），以避免"丢失"最后64MB的RAM。然而，这样做会有各种副作用，并且需要对内核进行一些重构（即使在这个简单的教程中）才能使其工作。
 
-Configuring the GPIO (General Purpose Input/Output) pins
+配置GPIO（通用输入/输出）引脚
 --------------------------------------------------------
 
-The GPIO pins (remember - we connected our USB to serial TTL cable to these) use MMIO. The top section of _io.c_ (marked with `// GPIO`) implements a few functions to configure these pins.
+GPIO引脚（记住——我们将USB转串口TTL线连接到这些引脚）使用MMIO。_io.c_的顶部部分（用`// GPIO`标记）实现了一些函数来配置这些引脚。
 
-At this point, I recommend digging into the [BCM2711 ARM Peripherals document](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2711/rpi_DATA_2711_1p0.pdf). It has a very detailed section on GPIO. Just don't believe everything you read as there are plenty of mistakes in this document at the moment.
+在这一点上，我建议深入研究[BCM2711 ARM外设文档](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2711/rpi_DATA_2711_1p0.pdf)。它有一个关于GPIO的非常详细的部分。只是不要相信你读到的一切，因为目前这个文档中有很多错误。
 
-It will, however, tell you what our memory-mapped GPIO **registers** like `GPFSEL0`, `GPSET0`, `GPCLR0` and `GPPUPPDN0` do. These are all at known offsets from the `PERIPHERAL_BASE` and are defined by our first `enum`.
+然而，它会告诉你我们的内存映射GPIO**寄存器**如`GPFSEL0`、`GPSET0`、`GPCLR0`和`GPPUPPDN0`做什么。这些都位于`PERIPHERAL_BASE`的已知偏移量处，并由我们的第一个`enum`定义。
 
-The two functions `mmio_read` and `mmio_write` can be used to read a value from and write a value to these registers.
+`mmio_read`和`mmio_write`函数可用于从这些寄存器读取值和向这些寄存器写入值。
 
-About the GPIO pins
+关于GPIO引脚
 -------------------
 
-Remember how we said that computers communicate in 1's and 0's? One thing we might want to do is to **set a pin** high (binary 1) or **clear a pin** low (binary 0). The two functions `gpio_set` and `gpio_clear` do just this. The corresponding hardware pin will receive a voltage when it is set high, and not when it cleared low. 
+还记得我们说过计算机以1和0进行通信吗？我们可能想做的一件事是**设置引脚**为高电平（二进制1）或**清除引脚**为低电平（二进制0）。`gpio_set`和`gpio_clear`两个函数正是这样做的。相应的硬件引脚在设置为高电平时会接收电压，在清除为低电平时则不会。
 
-That said, however, pins can also have one of three **pull states**. This tells the RPi4 what the default state of a pin is. If a pin is set to "Pull Up", then its resting state is high (receiving voltage) unless it's told otherwise. If a pin is set to "Pull Down", then its resting state is low. This can be useful for connecting different types of devices. If a pin is set to "Pull None" then it is said to be "floating", and this is what our UART needs. The `gpio_pull` function sets the pull state of a given pin for us.
+也就是说，引脚也可以具有三种**上拉状态**之一。这告诉RPi4引脚的默认状态是什么。如果引脚设置为"上拉"，则其静止状态为高电平（接收电压），除非另有指示。如果引脚设置为"下拉"，则其静止状态为低电平。这对于连接不同类型的设备很有用。如果引脚设置为"无上拉"，则称其为"浮动"，这是我们的UART需要的。`gpio_pull`函数为我们设置给定引脚的上拉状态。
 
-You need to know just a few more things about the GPIO pins:
+你需要再了解一些关于GPIO引脚的事情：
 
- * The RPi4 is capable of more functions than there are hardware pins available for
- * To solve this, our code can dynamically map a pin to a function
- * In our case, we want GPIO 14 and GPIO 15 to take alternate function 5 (TXD1 and RXD1 respectively)
- * This maps the RPi4's mini UART (UART1) to the pins we connected our cable to!
- * We use the `gpio_function` call to set this up
+* RPi4能够实现的功能比可用的硬件引脚更多
+* 为了解决这个问题，我们的代码可以动态地将引脚映射到功能
+* 在我们的例子中，我们希望GPIO 14和GPIO 15采用备用功能5（分别为TXD1和RXD1）
+* 这将RPi4的迷你UART（UART1）映射到我们连接电缆的引脚！
+* 我们使用`gpio_function`调用来设置这一点
 
-Now the GPIO section of _io.c_ should be clear. Let's move on.
+现在_io.c_的GPIO部分应该清楚了。让我们继续。
 
-Configuring the UART
+配置UART
 --------------------
 
-The second section of _io.c_ (marked with `// UART`) implements a few functions to help us talk to the UART. Thankfully, this device also uses MMIO, and you'll see the registers set up in the first `enum` just like you saw before. Look in the [BCM2711 ARM Peripherals document](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2711/rpi_DATA_2711_1p0.pdf) for a more detailed explanation of these registers.
+_io.c_的第二部分（用`// UART`标记）实现了一些函数来帮助我们与UART对话。值得庆幸的是，这个设备也使用MMIO，你会看到寄存器像之前一样在第一个`enum`中设置。查看[BCM2711 ARM外设文档](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2711/rpi_DATA_2711_1p0.pdf)以获取这些寄存器的更详细解释。
 
-I do just want to call out the `AUX_UART_CLOCK` parameter, which we set to `500000000`. Remember how I said that UART communication is all about timing? Well, this is exactly the same clock speed (500 MHz) that we set in _config.txt_ when we added the `core_freq_min=500` line. This is no coincidence!
+我只想指出`AUX_UART_CLOCK`参数，我们将其设置为`500000000`。还记得我说过UART通信完全与计时有关吗？嗯，这正是我们在_config.txt_中添加`core_freq_min=500`行时设置的相同时钟速度（500 MHz）。这不是巧合！
 
-You'll also note some other familiar numbers in the `uart_init()` function, which we call directly from our `main()` routine in _kernel.c_. We set the baud rate to `115200`, and the number of bits to `8`.
+你还会在`uart_init()`函数中注意到一些其他熟悉的数字，我们直接从_kernel.c_中的`main()`例程调用它。我们将波特率设置为`115200`，将位数设置为`8`。
 
-Finally we add some useful functions:
+最后，我们添加一些有用的函数：
 
- * `uart_isWriteByteReady` - checks the UART line status to ensure we are "ready to send"
- * `uart_writeByteBlockingActual` - waits until we are "ready to send" and then sends a single character
- * `uart_writeText` - sends a whole string using `uart_writeByteBlockingActual` 
+* `uart_isWriteByteReady` - 检查UART线路状态以确保我们"准备发送"
+* `uart_writeByteBlockingActual` - 等待直到我们"准备发送"，然后发送单个字符
+* `uart_writeText` - 使用`uart_writeByteBlockingActual`发送整个字符串
 
-You'll remember that `uart_writeText` is what we call from `main()` to print "Hello world!".
+你会记得`uart_writeText`是我们从`main()`调用的，用于打印"Hello world!"。
 
-Some extra code
+一些额外的代码
 ---------------
 
-I don't want this tutorial to just be an explanation so, in the code, you'll see I've added some more functionality to _io.c_ and made use of it in our kernel. Have a read through and see if you can understand what's going on. Refer to the documentation again if you need to.
+我不希望这个教程只是一个解释，所以在代码中，你会看到我已经向_io.c_添加了一些更多功能，并在我们的内核中使用了它。仔细阅读，看看你是否能理解发生了什么。如果需要，请再次参考文档。
 
-We can now read from our UART too! If you build the kernel and power on the RPi4 just like before, it'll say hello to the world again. But, after that, you can type into the terminal emulator window and the RPi4 sends the characters right back to you.
+我们现在也可以从UART读取！如果你像以前一样构建内核并打开RPi4的电源，它会再次向世界问好。但是，在那之后，你可以在终端模拟器窗口中输入内容，RPi4会将字符直接发送回给你。
 
-_Now we're communicating in two directions!_
+_现在我们正在双向通信！_
 
-We also implemented a software [FIFO buffer](https://en.wikipedia.org/wiki/FIFO_(computing_and_electronics)) for our UART communication. The RPi4 has limited buffer space for data arriving on the UART, and incorporating our own is likely to make it easier to manage incoming data in future.
+我们还为UART通信实现了一个软件[FIFO缓冲区](https://en.wikipedia.org/wiki/FIFO_(computing_and_electronics))。RPi4在UART上接收数据的缓冲区空间有限，加入我们自己的缓冲区可能会使未来管理传入数据更容易。
 
-[Go to part5-framebuffer >](../part5-framebuffer)
+[前往part5-framebuffer >](../part5-framebuffer)

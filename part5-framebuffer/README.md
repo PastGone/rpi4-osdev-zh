@@ -1,19 +1,19 @@
-Writing a "bare metal" operating system for Raspberry Pi 4 (Part 5)
+为 Raspberry Pi 4 编写「裸机」操作系统（第五部分）
 ===================================================================
 
-[< Go back to part4-miniuart](../part4-miniuart)
+[< 返回part4-miniuart](../part4-miniuart)
 
-Working with the screen
+与屏幕交互
 -----------------------
 
-As exciting as the UART is, in this tutorial we're finally going to get "Hello world!" up on the screen! Now that we're experts in MMIO, we're ready to tackle **mailboxes**. This is how we communicate with the VideoCore multimedia processor. We can send it messages, and it can reply. Think of it just like email.
+尽管UART很令人兴奋，但在本教程中，我们终于要把"Hello world!"显示在屏幕上了！现在我们已经是MMIO专家了，我们准备好处理**邮箱**（mailboxes）了。这是我们与VideoCore多媒体处理器通信的方式。我们可以向它发送消息，它也可以回复。把它想象成电子邮件就好了。
 
-Let's create _mb.c_:
+让我们创建_mb.c_：
 
 ```c
 #include "io.h"
 
-// The buffer must be 16-byte aligned as only the upper 28 bits of the address can be passed via the mailbox
+// 缓冲区必须对齐16字节，因为地址的高28位才能通过邮箱传递
 volatile unsigned int __attribute__((aligned(16))) mbox[36];
 
 enum {
@@ -31,64 +31,64 @@ enum {
 
 unsigned int mbox_call(unsigned char ch)
 {
-    // 28-bit address (MSB) and 4-bit value (LSB)
+    // 28位地址（高位）和4位值（低位）
     unsigned int r = ((unsigned int)((long) &mbox) &~ 0xF) | (ch & 0xF);
 
-    // Wait until we can write
+    // 等待直到可以写入
     while (mmio_read(MBOX_STATUS) & MBOX_FULL);
     
-    // Write the address of our buffer to the mailbox with the channel appended
+    // 将缓冲区地址写入邮箱，并附加通道号
     mmio_write(MBOX_WRITE, r);
 
     while (1) {
-        // Is there a reply?
+        // 有回复吗？
         while (mmio_read(MBOX_STATUS) & MBOX_EMPTY);
 
-        // Is it a reply to our message?
-        if (r == mmio_read(MBOX_READ)) return mbox[1]==MBOX_RESPONSE; // Is it successful?
+        // 是对我们消息的回复吗？
+        if (r == mmio_read(MBOX_READ)) return mbox[1]==MBOX_RESPONSE; // 成功了吗？
            
     }
     return 0;
 }
 ```
 
-First we include _io.h_ as we need access to the `PERIPHERAL_BASE` definition and also to make use of the `mmio_read` and `mmio_write` functions that _io.c_ provides. Our previous MMIO experience is useful here, as sending/receiving mailbox request/responses is achieved using the same technique. We'll just be addressing different offsets from `PERIPHERAL_BASE`, as you see in the code.
+首先，我们包含_io.h_，因为我们需要访问`PERIPHERAL_BASE`定义，并且也要使用_io.c_提供的`mmio_read`和`mmio_write`函数。我们之前的MMIO经验在这里很有用，因为发送/接收邮箱请求/响应是使用相同的技术实现的。正如你在代码中看到的，我们将只是从`PERIPHERAL_BASE`访问不同的偏移量。
 
-Importantly, our mailbox buffer (where messages will be stored) needs to be correctly aligned in memory. This is one example where we need to be strict with the compiler instead of letting it do its thing! By ensuring the buffer is "16-byte aligned", we know that its memory address is a multiple of 16 i.e. the 4 least significant bits are not set. That's good, because only the 28 most significant bits can be used as the address, leaving the 4 least significant bits to specify the **channel**.
+重要的是，我们的邮箱缓冲区（消息将存储在这里）需要在内存中正确对齐。这是我们需要严格要求编译器而不是让它自行处理的一个例子！通过确保缓冲区是"16字节对齐"的，我们知道它的内存地址是16的倍数，即4个最低有效位未设置。这很好，因为只有28个最高有效位可以用作地址，留下4个最低有效位来指定**通道**。
 
-I recommend reading up on the [mailbox property interface](https://github.com/raspberrypi/firmware/wiki/Mailbox-property-interface). You'll see that channel 8 is reserved for messages from the ARM for response by the VideoCore, so we'll be using this channel.
+我建议阅读[邮箱属性接口](https://github.com/raspberrypi/firmware/wiki/Mailbox-property-interface)。你会看到通道8保留用于ARM发送给VideoCore响应的消息，所以我们将使用这个通道。
 
-`mbox_call` implements all the MMIO we need to send the message (assuming it's been set up in the buffer) and await the reply. The VideoCore will write the reply directly to our original buffer.
+`mbox_call`实现了我们发送消息（假设它已经在缓冲区中设置好了）并等待回复所需的所有MMIO操作。VideoCore会直接将回复写入我们原来的缓冲区。
 
-The framebuffer
+帧缓冲区
 ---------------
 
-Now take a look at _fb.c_. The `fb_init()` routine makes our very first mailbox call, using some definitions from _mb.h_. Remember the email analogy? Well, since it's possible to ask a person to do more than one thing by email, we can also ask a few things of the VideoCore at once. This message asks for two things:
+现在看一下_fb.c_。`fb_init()`例程使用_mb.h_中的一些定义进行我们的第一次邮箱调用。还记得电子邮件的类比吗？嗯，既然可以通过电子邮件要求一个人做不止一件事，我们也可以同时向VideoCore要求几件事。这条消息要求两件事：
 
- * A pointer to the framebuffer start (`MBOX_TAG_GETFB`)
- * The pitch (`MBOX_TAG_GETPITCH`)
+* 帧缓冲区起始指针（`MBOX_TAG_GETFB`）
+* 间距（`MBOX_TAG_GETPITCH`）
 
-You can read more about the message structure on the [mailbox property interface](https://github.com/raspberrypi/firmware/wiki/Mailbox-property-interface) page that I shared before.
+你可以在我之前分享的[邮箱属性接口](https://github.com/raspberrypi/firmware/wiki/Mailbox-property-interface)页面上阅读更多关于消息结构的信息。
 
-A **framebuffer** is simply an area of memory that contains a bitmap which drives a video display. In other words, we can manipulate the pixels on the screen directly by writing to specific memory addresses. We will first need to understand how this memory is organised though.
+**帧缓冲区**只是一块内存区域，包含一个驱动视频显示的位图。换句话说，我们可以通过写入特定的内存地址直接操纵屏幕上的像素。不过，我们首先需要了解这块内存是如何组织的。
 
-In this example, we ask the VideoCore for:
+在这个例子中，我们向VideoCore请求：
 
- * a simple 1920x1080 (1080p) framebuffer
- * a depth of 32 bits per pixel, with an RGB pixel order
+* 一个简单的1920x1080（1080p）帧缓冲区
+* 每像素32位的深度，RGB像素顺序
 
-So each pixel is made up of 8-bits for the Red value, 8-bits for Green, 8-bits for Blue and 8-bits for the Alpha channel (representing transparency/opacity). We're asking that the pixels are ordered in memory with the Red byte coming first, then Green, then Blue - RGB. In actual fact, the Alpha byte always comes ahead of all of these, so it's really ARGB.
+所以每个像素由8位红色值、8位绿色值、8位蓝色值和8位Alpha通道（表示透明度/不透明度）组成。我们要求像素在内存中按红色字节在前，然后是绿色，然后是蓝色的顺序排列——RGB。实际上，Alpha字节总是在所有这些之前，所以实际上是ARGB。
 
-We then send the message using channel 8 (`MBOX_CH_PROP`) and check that what the VideoCore sends back is what we asked for. It should also tell us the missing piece of the framebuffer organisation puzzle - the number of bytes per line or **pitch**.
+然后我们使用通道8（`MBOX_CH_PROP`）发送消息，并检查VideoCore返回的内容是否与我们请求的一致。它还应该告诉我们帧缓冲区组织难题中缺失的部分——每行的字节数或**间距**（pitch）。
 
-If everything comes back as expected, then we're ready to write to the screen!
+如果一切按预期返回，那么我们就准备好写入屏幕了！
 
-Drawing a pixel
+绘制像素
 ---------------
 
-To save us remembering RGB colour combinations, let's set up a simple 16-colour **palette**. Anyone remember the old [EGA/VGA palette](https://en.wikipedia.org/wiki/Enhanced_Graphics_Adapter)? If you take a look in _terminal.h_, you'll see the `vgapal` array sets up that same palette, with Black as item 0 and White as item 15, and many shades in between!
+为了节省我们记住RGB颜色组合的时间，让我们设置一个简单的16色**调色板**。有人记得旧的[EGA/VGA调色板](https://en.wikipedia.org/wiki/Enhanced_Graphics_Adapter)吗？如果你看一下_terminal.h_，你会看到`vgapal`数组设置了相同的调色板，黑色是项目0，白色是项目15，中间有许多色调！
 
-Our `drawPixel` routine can then take an (x, y) coordinate and a colour. We use an `unsigned char` (8 bits) to represent two palette indexes at once, with the 4 most significant bits representing the background colour and the 4 least significant bits, the foreground colour. You may see why it's helpful to have only a 16-colour palette for now!
+我们的`drawPixel`例程可以接受一个(x, y)坐标和一个颜色。我们使用一个`unsigned char`（8位）来同时表示两个调色板索引，高4位表示背景颜色，低4位表示前景颜色。你可能会明白为什么现在只有16色调色板是有帮助的！
 
 ```c
 void drawPixel(int x, int y, unsigned char attr)
@@ -98,21 +98,21 @@ void drawPixel(int x, int y, unsigned char attr)
 }
 ```
 
-We first calculate the framebuffer offset in bytes. (y * pitch) gets us to coordinate (0, y) - pitch is the number of bytes per line. We then add (x * 4) to get to (x, y) - there are 4 bytes (or 32 bits!) per pixel (ARGB). We can then set that byte in the framebuffer to our foreground colour (we don't need a background colour here).
+我们首先计算帧缓冲区中的字节偏移量。(y * pitch)让我们到达坐标(0, y)——pitch是每行的字节数。然后我们加上(x * 4)到达(x, y)——每个像素有4个字节（或32位！）（ARGB）。然后我们可以将帧缓冲区中的该字节设置为我们的前景色（这里我们不需要背景色）。
 
-Drawing lines, rectangles and circles
+绘制线条、矩形和圆形
 -------------------------------------
 
-Examine and understand our `drawRect`, `drawLine` and `drawCircle` routines now. Where a polygon is filled, we use the background colour for the fill and the foreground colour for the outline.
+现在检查并理解我们的`drawRect`、`drawLine`和`drawCircle`例程。填充多边形时，我们使用背景色进行填充，使用前景色进行轮廓绘制。
 
-I recommend reading [Bresenham](https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm) on drawing graphics primitives. My line and circle drawing algorithms come from him, and they're designed to use only simple mathematics. He makes for very interesting reading and his algorithms are still very important today.
+我建议阅读[Bresenham](https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm)关于绘制图形原语的内容。我的线条和圆形绘制算法来自他，它们设计为只使用简单的数学运算。他的著作非常有趣，他的算法在今天仍然非常重要。
 
-Writing characters to the screen
+向屏幕写入字符
 --------------------------------
 
-I told you that nothing is for free in bare metal programming, right? Well, if we want to write a message to the screen then we need a font. So, just like we built our palette, we now need to build up a font for our code to use. Luckily, fonts are just arrays of simple **bitmaps** - 1's and 0's used to describe a picture. We're going to define an 8x8 font similar to the one MS-DOS used.
+我告诉过你在裸机编程中没有什么是免费的，对吧？那么，如果我们想在屏幕上写消息，我们需要一种字体。所以，就像我们构建调色板一样，我们现在需要为我们的代码构建一种字体。幸运的是，字体只是简单**位图**的数组——用于描述图片的1和0。我们将定义一个类似于MS-DOS使用的8x8字体。
 
-Imagine an 8x8 "A":
+想象一个8x8的"A"：
 
 ```c
 0 0 0 0 1 1 0 0 = 0x0C
@@ -125,25 +125,25 @@ Imagine an 8x8 "A":
 0 0 0 0 0 0 0 0 = 0x00
 ```
 
-This bitmap can be represented by just 8 bytes (the hexadecimal numbers after the = signs). When you look in _terminal.h_, you'll see that we've done this for many of the useful characters found in [code page 437](https://en.wikipedia.org/wiki/Code_page_437).
+这个位图可以只用8个字节（=号后面的十六进制数字）来表示。当你查看_terminal.h_时，你会看到我们已经为[代码页437](https://en.wikipedia.org/wiki/Code_page_437)中的许多有用字符做了这个。
 
-`drawChar` should now be fairly self-explanatory. 
+`drawChar`现在应该相当不言自明了。
 
- * We set a pointer `glyph` to the bitmap of the character we're looking to draw
- * We iterate over the bitmap array, starting with the first row, then second, then third etc.
- * For each pixel in the row, we determine whether it should be set to the background colour (the corresponding glyph bit is 0) or the foregound colour (the bit is 1)
- * We draw the appropriate pixel at the right coordinates
+* 我们设置一个指针`glyph`指向我们要绘制的字符的位图
+* 我们遍历位图数组，从第一行开始，然后是第二行，然后是第三行等等
+* 对于行中的每个像素，我们确定它应该设置为背景色（相应的字形位为0）还是前景色（位为1）
+* 我们在正确的坐标处绘制相应的像素
 
-`drawString` unsurprisingly uses `drawChar` to print a whole string.
+`drawString`毫不奇怪地使用`drawChar`来打印整个字符串。
 
-Updating our kernel to be more artistic
+更新我们的内核使其更具艺术性
 ---------------------------------------
 
-Finally, we can create a work of art on-screen! Our updated _kernel.c_ exercises all these graphics routines to draw the picture below.
+最后，我们可以在屏幕上创作一件艺术品了！我们更新后的_kernel.c_练习所有这些图形例程来绘制下面的图片。
 
-Build the kernel, copy it to your SD card. You may need to update your _config.txt_ once more. If you previously set the `hdmi_safe` parameter to get Raspbian going, you probably won't need it now. You might, however, need to set `hdmi_mode` and `hdmi_group` specifically to ensure we get into 1080p mode.
+构建内核，将其复制到你的SD卡。你可能需要再次更新你的_config.txt_。如果你之前设置了`hdmi_safe`参数来启动Raspbian，你现在可能不需要它了。然而，你可能需要专门设置`hdmi_mode`和`hdmi_group`以确保我们进入1080p模式。
 
-It's a good time to gain an understanding of the [screen resolution settings](https://pimylifeup.com/raspberry-pi-screen-resolution/) for the RPi4. Because I'm using a regular TV, my _config.txt_ file now contains three lines (including the one we already added for the UART):
+现在是了解RPi4的[屏幕分辨率设置](https://pimylifeup.com/raspberry-pi-screen-resolution/)的好时机。因为我使用的是普通电视，我的_config.txt_文件现在包含三行（包括我们已经为UART添加的那一行）：
 
 ```c
 core_freq_min=500
@@ -151,10 +151,10 @@ hdmi_group=1
 hdmi_mode=16
 ```
 
-Now fire up the RPi4!
+现在启动RPi4！
 
-_We've done so much more than a basic "Hello world!" on-screen already!_ Sit back, relax and enjoy your artwork. In the next tutorial, we'll be combining graphics with keyboard input from the UART to create our first game.
+_我们已经在屏幕上做了比基本的"Hello world!"更多的事情了！_ 坐下来，放松，欣赏你的艺术品。在下一个教程中，我们将把图形与来自UART的键盘输入结合起来，创建我们的第一个游戏。
 
-![Our first on-screen artwork](images/5-framebuffer-screen.jpg)
+![我们的第一个屏幕艺术品](images/5-framebuffer-screen.jpg)
 
-[Go to part6-breakout >](../part6-breakout)
+[前往part6-breakout >](../part6-breakout)

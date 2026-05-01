@@ -1,36 +1,36 @@
-Writing a "bare metal" operating system for Raspberry Pi 4 (Part 8)
+为 Raspberry Pi 4 编写「裸机」操作系统（第八部分）
 ===================================================================
 
-[< Go back to part7-bluetooth](../part7-bluetooth)
+[< 返回part7-bluetooth](../part7-bluetooth)
 
-Receiving Bluetooth data
+接收蓝牙数据
 ------------------------
-So we've mastered advertising and we're broadcasting data out into the World. But that's only half the story! In this part, we'll be exploring how to receive data from an external source. This is much more exciting as we can begin to use other devices as remote controllers.
+我们已经掌握了广播，正在向世界广播数据。但这只是故事的一半！在这一部分，我们将探索如何从外部来源接收数据。这更加令人兴奋，因为我们可以开始使用其他设备作为遥控器。
 
-In fact, my idea for this part is to control the Breakout game we wrote in part6 by receiving data from the trackpad on my MacBook Pro over Bluetooth! Neat, eh?
+事实上，我在这一部分的想法是通过蓝牙接收我MacBook Pro触控板的数据来控制我们在part6中编写的打砖块游戏！很棒，对吧？
 
-Building a Bluetooth Breakout controller
+构建蓝牙打砖块控制器
 ----------------------------------------
-Let's first build the controller code for broadcasting from the laptop. We essentially need to create a BLE peripheral in code.
+首先，让我们构建用于从笔记本电脑广播的控制器代码。我们本质上需要在代码中创建一个BLE外设。
 
-We don't need to build everything from scratch since we're not on bare metal any more! I used the [Bleno library](https://github.com/noble/bleno), which is extremely popular for this kind of work. It requires some [Node.js](https://nodejs.org/en/download/) knowledge, but I didn't have any before I started and so I'm sure you'll be fine too.
+既然我们不再是裸机了，我们不需要从头开始构建一切！我使用了[Bleno库](https://github.com/noble/bleno)，它在这类工作中非常流行。它需要一些[Node.js](https://nodejs.org/en/download/)知识，但我开始之前也没有，所以我相信你也会没事的。
 
-Once you've got Node.js installed, use `npm` to install Bleno with `npm install bleno`. Because I'm on a Mac and running a recent version of Mac OS X (> Catalina), I needed to do this using [these three steps](https://punchthrough.com/how-to-use-node-js-to-speed-up-ble-app-development/) instead:
+安装Node.js后，使用`npm`安装Bleno：`npm install bleno`。因为我在Mac上运行最新版本的Mac OS X（> Catalina），我需要改用[这三个步骤](https://punchthrough.com/how-to-use-node-js-to-speed-up-ble-app-development/)：
 
- * `npm install github:notjosh/bleno#inject-bindings`
- * `npm install github:notjosh/bleno-mac`
- * `npm install github:sandeepmistry/node-xpc-connection#pull/26/head`
+* `npm install github:notjosh/bleno#inject-bindings`
+* `npm install github:notjosh/bleno-mac`
+* `npm install github:sandeepmistry/node-xpc-connection#pull/26/head`
 
-I used the [echo example](https://github.com/noble/bleno/tree/master/examples/echo) in the Bleno repository as my base code. This example implements a Bluetooth peripheral, exposing a service which:
+我使用了Bleno仓库中的[echo示例](https://github.com/noble/bleno/tree/master/examples/echo)作为我的基础代码。这个示例实现了一个蓝牙外设，公开了一个服务，该服务：
 
- * lets a connected device read a locally stored byte value
- * lets a connected device update the locally stored byte value (it can be changed locally too...!)
- * lets a connected device subscribe to receive updates when the locally stored byte value changes
- * lets a connected device unsubscribe from receiving updates
+* 允许连接的设备读取本地存储的字节值
+* 允许连接的设备更新本地存储的字节值（它也可以在本地更改！）
+* 允许连接的设备订阅以在本地存储的字节值更改时接收更新
+* 允许连接的设备取消订阅接收更新
 
-You won't be surprised to know that my design is for our Raspberry Pi to subscribe to receive updates from this service running on my laptop. That locally stored byte value will be updated locally to reflect the current mouse cursor position as it changes. Our Raspberry Pi will then be notified every time I move the mouse on my MacBook Pro as if by magic!
+你不会惊讶地知道，我的设计是让我们的Raspberry Pi订阅接收运行在我笔记本电脑上的这个服务的更新。那个本地存储的字节值将在本地更新，以反映当前鼠标光标位置的变化。然后，每当我在MacBook Pro上移动鼠标时，我们的Raspberry Pi就会神奇地收到通知！
 
-You can see the changes I made to the Bleno echo example to implement this in the _controller_ subdirectory of this part8-breakout-ble. They boil down to making use of [iohook](https://github.com/wilix-team/iohook), which I installed using `npm install iohook`. Here's the interesting bit (the rest is just plumbing):
+你可以在这个part8-breakout-ble的_controller_子目录中看到我对Bleno echo示例所做的修改，以实现这一点。它们归结为使用[iohook](https://github.com/wilix-team/iohook)，我使用`npm install iohook`安装了它。这是有趣的部分（其余只是管道）：
 
 ```c
 var ioHook = require('iohook');
@@ -53,37 +53,37 @@ ioHook.on( 'mousemove', event => {
 ioHook.start();
 ```
 
-Here, I'm capturing the x coordinate of the mouse cursor and translating it into a number between 0 (far left of the screen) and 100 (far right of the screen). If it changes from the previous value we saw, we update the callback value (our Raspberry Pi only needs to know when the position has changed). As the callback value is updated, so any subscribed devices will be notified.
+在这里，我捕获鼠标光标的x坐标，并将其转换为0（屏幕最左侧）到100（屏幕最右侧）之间的数字。如果它与我们之前看到的值不同，我们更新回调值（我们的Raspberry Pi只需要知道位置何时改变）。随着回调值的更新，所有订阅的设备都将收到通知。
 
-And we have ourselves a working, albeit a bit hacky, Bluetooth game controller! You can run it with the command `node main.js`, but it won't do much without something to connect to it.
+我们有了一个工作的蓝牙游戏控制器，尽管有点简陋！你可以用`node main.js`命令运行它，但如果没有连接的设备，它不会做太多事情。
 
-Connecting to our Breakout controller from the Raspberry Pi
+从Raspberry Pi连接到我们的打砖块控制器
 -----------------------------------------------------------
-_main.js_, when running, is sitting there broadcasting the Breakout controller's availability publicly, using exactly the same techniques that our Eddystone beacon used. Our tasks on the Pi are now:
+运行时的_main.js_正在公开广播打砖块控制器的可用性，使用与我们的Eddystone信标完全相同的技术。现在我们在Pi上的任务是：
 
- * to start listening (called "scanning") for these adverts so we know where the echo service can be found
- * to connect to the echo service, having found it
- * to subscribe to receive its updates on cursor position
- * to listen for these updates and do something upon receipt
+* 开始监听（称为"扫描"）这些广告，以便我们知道echo服务在哪里
+* 找到echo服务后连接到它
+* 订阅接收其光标位置更新
+* 监听这些更新并在收到时采取行动
 
-Remember I mentioned that we'd discuss the `run_search()` function in part7-bluetooth? Well, this is exactly what it does. This time comment out the `run_eddystone()` function and let `run_search()` run whilst your echo service is running on the laptop. As you wiggle your finger on the trackpad, you should see the updates coming through on the Pi!
+还记得我提到我们会在part7-bluetooth中讨论`run_search()`函数吗？嗯，这正是它的作用。这次注释掉`run_eddystone()`函数，让`run_search()`运行，同时你的echo服务在笔记本电脑上运行。当你在触控板上移动手指时，你应该会在Pi上看到更新！
 
-Instead of advertising, `run_search()` puts the Bluetooth controller into scanning mode (see links in part7-bluetooth to learn more about how this is done). `bt_search()` in _kernel.c_ is then called repeatedly until it receives some specific advertising data - namely a notification of the availability of the echo service's Service ID (hexadecimal number 0xEC00), as well as its broadcast name 'echo'. If it sees both in the same advertising report then it assumes it's found what it's looking for. The originating Bluetooth Device Address is noted.
+与广播不同，`run_search()`将蓝牙控制器置于扫描模式（请参阅part7-bluetooth中的链接了解如何完成此操作）。然后重复调用_kernel.c_中的`bt_search()`，直到它收到一些特定的广告数据——即echo服务的服务ID（十六进制数字0xEC00）的可用性通知，以及其广播名称'echo'。如果它在同一个广告报告中看到两者，它就会假设找到了它要找的东西。记录原始蓝牙设备地址。
 
-We send a `connect()` request to that address (LE Create Connection in the TI docs) and now call `bt_conn()` repeatedly until we're notified that the connection has completed successfully. When this happens, we get a non-zero `connection_handle`. We'll use this to identify communications from/to the echo service from now on.
+我们向该地址发送`connect()`请求（TI文档中的LE Create Connection），现在重复调用`bt_conn()`，直到收到连接成功完成的通知。发生这种情况时，我们得到一个非零的`connection_handle`。从现在开始，我们将使用它来标识往返echo服务的通信。
 
-Next we send a subscription request to the service using that handle in `sendACLsubscribe()` in _bt.c_. We tell it that we're interested in receiving updates to its stored value (or "characteristic"). I actually did a lot of reverse-engineering to get to this code. ACL data packets over HCI are not widely documented. Have a read of [this forum thread](https://www.raspberrypi.org/forums/viewtopic.php?t=233140) to see the kind of things I did to succeed. `gatttool` and `hcitool` on Raspbian turned out to be my very good friends!
+接下来，我们在_bt.c_的`sendACLsubscribe()`中使用该句柄向服务发送订阅请求。我们告诉它我们有兴趣接收其存储值（或"特征"）的更新。实际上，我做了大量反向工程才得到这段代码。HCI上的ACL数据包没有广泛记录。阅读[这个论坛帖子](https://www.raspberrypi.org/forums/viewtopic.php?t=233140)，看看我为成功所做的事情。Raspbian上的`gatttool`和`hcitool`原来是我的好朋友！
 
-Finally, we call `acl_poll()` repeatedly to see if there are any updates waiting. The data comes to us in the form of an ACL packet, which identifies, amongst other things, the connection handle it was sent to/using (worth checking against our recorded handle so we know it's for us) as well as data length and an opcode. 
+最后，我们重复调用`acl_poll()`来查看是否有任何更新等待。数据以ACL数据包的形式到达，其中标识了连接句柄（值得与我们记录的句柄进行检查，以便我们知道它是给我们的）以及数据长度和操作码。
 
 ![ATT handle value notification opcode 1b](images/8-opcode-1b.png)
 
-The opcode 0x1B represents a "ATT handle value notification" (ATT_HandleValueNoti in the TI docs). Those are the updates we're looking for. In part7 we simply print the update to debug to show it's been received.
+操作码0x1B代表"ATT handle value notification"（TI文档中的ATT_HandleValueNoti）。这些是我们正在寻找的更新。在part7中，我们只是将更新打印到调试来显示它已收到。
 
-The last mile
+最后一步
 -------------
-With this, it's a good exercise to take part6 and part7 code and merge them to form a working Breakout implementation that's controlled via Bluetooth! After all, that's exactly how I ended up with the part8 code... If you get stuck, it's all in my repo.
+有了这个，将part6和part7代码合并以形成一个通过蓝牙控制的工作打砖块实现是一个很好的练习！毕竟，这正是我最终得到part8代码的方式...如果你卡住了，我的仓库里都有。
 
-Good luck! Next time, we'll look at adding sound to the gameplay...
+祝你好运！下次，我们将看看如何在游戏中添加声音...
 
-[Go to part9-sound >](../part9-sound)
+[前往part9-sound >](../part9-sound)

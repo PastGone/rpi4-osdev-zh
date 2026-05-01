@@ -1,21 +1,21 @@
-Writing a "bare metal" operating system for Raspberry Pi 4 (Part 6)
+为 Raspberry Pi 4 编写「裸机」操作系统（第六部分）
 ===================================================================
 
-[< Go back to part5-framebuffer](../part5-framebuffer)
+[< 返回part5-framebuffer](../part5-framebuffer)
 
-Introducing Breakout
+介绍打砖块游戏
 --------------------
 
-[Breakout](https://www.gameinformer.com/b/features/archive/2015/10/09/how-steve-wozniak-s-breakout-defined-apple-s-future.aspx) is a classic arcade game that has a paddle (or bat), which you move along a horizontal axis at the bottom of the screen. At the top of the screen are rows of bricks. A ball bounces around the screen, rebounding off the bat and off the bricks, which are "knocked out" when directly hit. The goal is to knock out all of the bricks with the ball. If you don't get to the ball in time, and it escapes the bottom of the screen, you lose a life. You typically have 3 lives before Game Over.
+[打砖块（Breakout）](https://www.gameinformer.com/b/features/archive/2015/10/09/how-steve-wozniak-s-breakout-defined-apple-s-future.aspx)是一款经典的街机游戏，它有一个挡板（或球拍），你可以在屏幕底部沿水平轴移动。屏幕顶部有几行砖块。一个球在屏幕上弹跳，从挡板和砖块上反弹，砖块在被直接击中时会被"击倒"。目标是用球击倒所有砖块。如果你没能及时接到球，它从屏幕底部逸出，你就失去一条命。通常你有3条命，之后游戏结束。
 
-Amazingly, we have all the components we need to build our version of [Steve Wozniak](https://en.wikipedia.org/wiki/Steve_Wozniak)'s classic.
+令人惊讶的是，我们拥有构建我们版本的[Steve Wozniak](https://en.wikipedia.org/wiki/Steve_Wozniak)经典游戏所需的所有组件。
 
-![Steve Wozniak's Breakout game](images/6-breakout-wozniak.jpg)
+![Steve Wozniak的打砖块游戏](images/6-breakout-wozniak.jpg)
 
-A tweak to our drawing code
+调整我们的绘图代码
 ---------------------------
 
-If you're also running in 1080p, then you'll note that our 8x8 font is rather small on the screen. Let's tweak `drawChar` to take a `zoom` parameter so our game players don't need to have their noses against the TV!
+如果你也在1080p下运行，你会注意到我们的8x8字体在屏幕上相当小。让我们调整`drawChar`以接受一个`zoom`参数，这样我们的游戏玩家就不需要把鼻子贴在电视上了！
 
 ```c
 void drawChar(unsigned char ch, int x, int y, unsigned char attr, int zoom)
@@ -34,7 +34,7 @@ void drawChar(unsigned char ch, int x, int y, unsigned char attr, int zoom)
 }
 ```
 
-We're just changing our loops to increase the column height and row width by our scale factor `zoom`. With `zoom` set to 2, for example, our 8x8 bitmap will actually be rendered as a 16x16 bitmap. To understand the logic required within the loop, it helps me to visualise the desired output:
+我们只是改变我们的循环，将列高度和行宽度按我们的缩放因子`zoom`增加。例如，当`zoom`设置为2时，我们的8x8位图实际上会渲染为16x16位图。为了理解循环中所需的逻辑，帮助我可视化期望的输出：
 
 ```c
 0 0 0 0 1 1 0 0 -> 0 0 0 0 0 0 0 0 1 1 1 1 0 0 0 0 
@@ -55,9 +55,9 @@ We're just changing our loops to increase the column height and row width by our
                    0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 
 ```
 
-It's clear that we want to repeat each bit `zoom` times to fill the wider row (horizontal zoom). And we then want to repeat the entire line `zoom` times to fill the taller column (vertical zoom).
+很明显，我们希望将每个位重复`zoom`次以填充更宽的行（水平缩放）。然后我们希望将整行重复`zoom`次以填充更高的列（垂直缩放）。
 
-To achieve the former, we simply advance our bitmask one in every `zoom` times instead of every time. We make use of integer rounding thus:
+为了实现前者，我们只需每隔`zoom`次而不是每次推进位掩码。我们利用整数舍入：
 
 ```c
 zoom=1                     zoom=2
@@ -72,86 +72,86 @@ j=7 : (j / zoom) = 7       j=7 : (j / zoom) = 3
 ...                        ...
 ```
 
-So, that sorts out our horizontal zoom. To achieve the vertical zoom, it's a similar solution. Instead of advancing our glyph pointer by the number of bytes per line on each iteration, we do it one in every `zoom` iterations by making use of the **modulo** operator (I think of this as "remainder after division"). If `i` divided by `zoom` has no remainder then we advance our glyph pointer, otherwise we leave it where it is!
+所以，这解决了我们的水平缩放问题。为了实现垂直缩放，解决方案类似。我们不是在每次迭代时将字形指针前进每行的字节数，而是每隔`zoom`次迭代前进一次，利用**模**运算符（我认为这是"除法后的余数"）。如果`i`除以`zoom`没有余数，那么我们推进字形指针，否则我们让它保持原位！
 
 ```c
 zoom=2
 i=1 : (i % zoom) = 1
-i=2 : (i % zoom) = 0 -> advance the pointer 
+i=2 : (i % zoom) = 0 -> 推进指针
 i=3 : (i % zoom) = 1
-i=4 : (i % zoom) = 0 -> advance the pointer
+i=4 : (i % zoom) = 0 -> 推进指针
 i=5 : (i % zoom) = 1
-i=6 : (i % zoom) = 0 -> advance the pointer
+i=6 : (i % zoom) = 0 -> 推进指针
 i=7 : (i % zoom) = 1
-i=8 : (i % zoom) = 0 -> advance the pointer
+i=8 : (i % zoom) = 0 -> 推进指针
 ...
 ```
 
-Perhaps you can see why we changed our outer loop to count from 1 rather than 0?
+也许你可以看到为什么我们将外循环改为从1而不是0开始计数？
 
-If you want, you can now make these changes to _fb.c_ in your part5-framebuffer code and exercise them properly in _kernel.c_ to check that they work. Don't forget to update the function definition in _fb.h_ to include the `zoom` parameter too.
+如果你愿意，你现在可以对你的part5-framebuffer代码中的_fb.c_做这些更改，并在_kernel.c_中正确练习它们以检查它们是否工作。不要忘记更新_fb.h_中的函数定义以包含`zoom`参数。
 
-It is also now trivial to modify `drawString` to take a `zoom` parameter and pass it through, so I won't document the changes here.
+现在修改`drawString`以接受`zoom`参数并传递它也是微不足道的，所以我不会在这里记录这些更改。
 
-Object tracking
+对象跟踪
 ---------------
 
-As we can now draw text (e.g. a score/lives counter), rectangles (paddle & bricks) and circles (ball), we can recreate the Breakout game screen. Check out `initBall()`, `initPaddle()`, `initBricks()` and `drawScoreboard(score, lives)` in our new _kernel.c_.
+既然我们现在可以绘制文本（例如分数/生命值计数器）、矩形（挡板和砖块）和圆形（球），我们可以重新创建打砖块游戏屏幕。查看我们新的_kernel.c_中的`initBall()`、`initPaddle()`、`initBricks()`和`drawScoreboard(score, lives)`。
 
-In addition to the graphics code, you'll see that we're keeping a record of each game object we create in the global `objects` array:
+除了图形代码，你会看到我们在全局`objects`数组中记录了我们创建的每个游戏对象：
 
- * its (x, y) coordinates
- * its width & height
- * what type of object it is (ball, paddle or brick)
- * whether it's "alive"
+* 它的(x, y)坐标
+* 它的宽度和高度
+* 对象类型（球、挡板或砖块）
+* 它是否"活着"
 
-We also store a global pointer to the ball and paddle object, so they're easy to track down!
+我们还存储了指向球和挡板对象的全局指针，这样它们很容易找到！
 
-As we'll need to knock out our bricks during gameplay, we create `removeObject(object)`, which simply draws a filled black rectangle over the object we pass, and sets its `alive` parameter to 0 to signal that it's now out of play.
+由于我们需要在游戏过程中击倒砖块，我们创建了`removeObject(object)`，它只是在我们传递的对象上绘制一个填充的黑色矩形，并将其`alive`参数设置为0以表示它现在不再参与游戏。
 
-To know that our ball is about to hit a brick (or indeed the paddle), we'll need to detect **collisions**. We simply conduct a search of the alive objects and return the first object we find whose coordinates overlap. If no object is found, we return 0. `detectCollision(object, xoff, yoff)` implements this. Note that `xoff` and `yoff` can be negative since the ball could be travelling in any direction.
+为了知道我们的球即将击中砖块（甚至挡板），我们需要检测**碰撞**。我们只需搜索活着的对象，并返回我们找到的第一个坐标重叠的对象。如果没有找到对象，我们返回0。`detectCollision(object, xoff, yoff)`实现了这一点。请注意，`xoff`和`yoff`可以是负数，因为球可以向任何方向移动。
 
-Keyboard input
+键盘输入
 --------------
 
-We'll be using the UART to take input, just like we did in part4-miniuart.
+我们将使用UART接收输入，就像我们在part4-miniuart中做的那样。
 
-`getUart()` simply checks if a key has been pressed and, if so, it returns the character, otherwise 0. We don't want this function to wait for a key, because gameplay needs to continue regardless.
+`getUart()`只是检查是否有按键被按下，如果是，它返回字符，否则返回0。我们不希望这个函数等待按键，因为无论如何游戏都需要继续。
 
-Animating the gameplay
+动画游戏玩法
 ----------------------
 
-Let's look at the new `main()` routine which controls the gameplay. Most of the initialisation code should be familiar to you, and the endgame of "Game over" or "Well done!" should also be clear. I'll therefore focus on the function of the inner loop.
+让我们看一下控制游戏玩法的新`main()`例程。大多数初始化代码你应该很熟悉，"游戏结束"或"做得好！"的结局也应该很清楚。因此，我将重点关注内部循环的功能。
 
-First, we check if we need to move the paddle. We'll move it left if we get a keypress of "h", and right if we get a keypress of "l". I would use the arrow keys normally, but they're a little harder to capture over the UART so we'll keep it simple for now.
+首先，我们检查是否需要移动挡板。如果我们收到按键"h"，我们将其向左移动，如果收到按键"l"，我们将其向右移动。我通常会使用箭头键，但它们在UART上捕获有点困难，所以我们现在保持简单。
 
-We now implement another function `moveObject(object, xoff, yoff)` to make these moves. This starts by calling another routine I've implemented in _fb.c_ to move a rectangular bitmap from one screen location to another, leaving only the background colour behind. It's a sloppy implementation, but it will do for now. We then just update the object's (x, y) coordinates and return.
+我们现在实现另一个函数`moveObject(object, xoff, yoff)`来进行这些移动。这首先调用我在_fb.c_中实现的另一个例程，将矩形位图从一个屏幕位置移动到另一个位置，只留下背景颜色。这是一个草率的实现，但目前可以做到。然后我们只需更新对象的(x, y)坐标并返回。
 
-With our paddle logic in place, let's deal with the ball. We've set some initial velocities but, before we actually move the ball, we need to check for collisions. If we're about to hit a brick, we:
+有了我们的挡板逻辑，让我们处理球。我们设置了一些初始速度，但在我们实际移动球之前，我们需要检查碰撞。如果我们即将击中砖块，我们：
 
- * remove that brick using `removeObject`
- * reverse our vertical direction
- * increment the score 
- * redraw the scoreboard
+* 使用`removeObject`移除那个砖块
+* 反转我们的垂直方向
+* 增加分数
+* 重新绘制记分板
 
-If we're about to hit the paddle, we:
+如果我们即将击中挡板，我们：
 
- * reverse our vertical direction 
- * make any necessary changes to our horizontal direction (in case we hit the side)
+* 反转我们的垂直方向
+* 对我们的水平方向进行任何必要的更改（以防我们击中侧面）
 
-We can then move our ball after a slight delay (so gameplay isn't too fast). The delay code is implemented in _fb.c_ and uses the on-board timer on the ARM.
+然后我们可以在短暂延迟后移动我们的球（这样游戏玩法不会太快）。延迟代码在_fb.c_中实现，并使用ARM上的板载计时器。
 
-Finally, we just need to make sure the ball is in the game arena. We bounce it off the sides if we need to but, if it escapes the bottom of the screen then we lose a life and reset both the paddle & ball. This is easy enough since we can just remove them and create new ones!
+最后，我们只需要确保球在游戏区域内。如果需要，我们让它从侧面弹回，但如果它从屏幕底部逸出，那么我们失去一条命并重置挡板和球。这很容易，因为我们可以简单地移除它们并创建新的！
 
-Conclusion
+结论
 ----------
 
-I hope writing your first game was easier than you thought it might be - and on bare metal too. It's pretty simple, granted, but once you've built it and got it going on your RPi4, I bet you'll be just a little bit addicted. I know I am!
+我希望编写你的第一个游戏比你想象的更容易——而且还是在裸机上。当然，它相当简单，但一旦你构建它并在你的RPi4上运行它，我敢打赌你会有点上瘾。我知道我是！
 
-_Well done, you've just written your first game!_
+_做得好，你刚刚编写了你的第一个游戏！_
 
-PS: if you have issues using the Arm gcc compiler (namely an unexpected crash after painting the first brick), you might to try setting the compiler optimisation level to `-O1` instead of `-O2` in the _Makefile_. Some folks have [reported issues](https://github.com/babbleberry/rpi4-osdev/issues/17), and I am able to reproduce these.
+PS：如果你使用Arm gcc编译器时遇到问题（即在绘制第一个砖块后意外崩溃），你可能需要尝试在_Makefile_中将编译器优化级别设置为`-O1`而不是`-O2`。一些人[报告了问题](https://github.com/babbleberry/rpi4-osdev/issues/17)，我能够重现这些问题。
 
-![The finished game](images/6-breakout-thefinishedgame.jpg)
+![完成的游戏](images/6-breakout-thefinishedgame.jpg)
 
-[Go to part7-bluetooth >](../part7-bluetooth)
+[前往part7-bluetooth >](../part7-bluetooth)

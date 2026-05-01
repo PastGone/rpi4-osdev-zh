@@ -1,81 +1,81 @@
-Writing a "bare metal" operating system for Raspberry Pi 4 (Part 9)
+为 Raspberry Pi 4 编写「裸机」操作系统（第九部分）
 ===================================================================
 
-[< Go back to part8-breakout-ble](../part8-breakout-ble)
+[< 返回part8-breakout-ble](../part8-breakout-ble)
 
-Playing sound from the audio jack
+从音频插孔播放声音
 ---------------------------------
-One thing our game is missing is the excitement of sound! Some beeps and squeaks would be a wonderful addition to make the gameplay more compelling. Let's work to do just that!
+我们的游戏缺少的一件事是声音的刺激！一些哔哔声和吱吱声将是一个很好的补充，使游戏玩法更加引人入胜。让我们努力做到这一点！
 
-I wrote this code as I referenced [Peter Lemon's work](https://github.com/PeterLemon/RaspberryPi/tree/master/Sound/PWM/8BIT/44100Hz/Stereo/CPU), for which I am very grateful. It did need some significant modification to work on the Raspberry Pi 4 hardware.
+我参考了[Peter Lemon的工作](https://github.com/PeterLemon/RaspberryPi/tree/master/Sound/PWM/8BIT/44100Hz/Stereo/CPU)编写了这段代码，对此我非常感激。它确实需要一些重大修改才能在Raspberry Pi 4硬件上工作。
 
-Design goal
+设计目标
 -----------
-Perhaps most importantly, we must be able to play sounds in the background. If our audio playback ties up the CPU, then gameplay will stop whilst the sound is playing. I think any player would be immediately put off by the rude intrusion into their adventure!
+也许最重要的是，我们必须能够在后台播放声音。如果我们的音频播放占用了CPU，那么游戏玩法将在播放声音时停止。我认为任何玩家都会被这种对他们冒险的粗鲁干扰立即劝退！
 
-One solution for this is to implement multi-tasking, thereby making use of the four CPU cores (so far we've only used one). This is no small feat, and a big commitment for a few beeps and squeaks.
+一种解决方案是实现多任务处理，从而利用四个CPU核心（到目前为止我们只使用了一个）。这不是一项小成就，对于一些哔哔声和吱吱声来说是一项重大承诺。
 
-Fortunately, the Raspberry Pi 4's hardware allows us to avoid this pain (for now), using something called DMA. This allows specific hardware subsystems to access main system memory completely independently of the CPU.
+幸运的是，Raspberry Pi 4的硬件允许我们避免这种痛苦（目前），使用一种叫做DMA的东西。这允许特定的硬件子系统完全独立于CPU访问主系统内存。
 
-Notes to self
+笔记
 -------------
-Here are a few things I learned on this journey, which helped me along significantly:
+以下是我在这段旅程中学到的一些东西，对我帮助很大：
 
- * The Raspberry Pi 4 uses PWM1 for output on the audio jack when GPIO 40 and 41 are mapped to Alternate Function 0
- * The Raspberry Pi 4's clock oscillator frequency is 54 MHz
- * PWM1 DMA is mapped to DMA channel 1
- * PWM1 is mapped to DREQ 1
- * We must use Legacy Master (starting `0x7E`, not `0xFE`) addresses for DMA transfers to peripherals
- * The DMA Control Block structures must be 32-bit aligned
+* 当GPIO 40和41映射到备用功能0时，Raspberry Pi 4使用PWM1用于音频插孔输出
+* Raspberry Pi 4的时钟振荡器频率为54 MHz
+* PWM1 DMA映射到DMA通道1
+* PWM1映射到DREQ 1
+* 我们必须使用Legacy Master（从`0x7E`开始，而不是`0xFE`）地址进行DMA传输到外设
+* DMA控制块结构必须32位对齐
 
-And always, always have a browser tab open on the [BCM2711 ARM Peripherals document](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2711/rpi_DATA_2711_1p0.pdf). It's a very handy reference for register addresses and bitmaps etc.
+并且总是，总是在浏览器中打开一个标签页，指向[BCM2711 ARM外设文档](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2711/rpi_DATA_2711_1p0.pdf)。它是寄存器地址和位图等的非常方便的参考。
 
-Audio sample format
+音频样本格式
 -------------------
-_audio.bin_ is the audio file we'll be playing. Technically speaking, it's 8-bit, unsigned PCM data at 44.1 KHz. This is an unusual format in this modern day and age, but it's easily converted using a tool like [ffmpeg](https://ffmpeg.org/).
+_audio.bin_是我们将要播放的音频文件。从技术上讲，它是44.1 KHz的8位无符号PCM数据。在当今时代，这是一种不寻常的格式，但使用[ffmpeg](https://ffmpeg.org/)这样的工具很容易转换。
 
-To convert from our _.bin_ file to a _.wav_ file that any laptop can play natively, do this:
+要将我们的_.bin_文件转换为任何笔记本电脑都可以原生播放的_.wav_文件，请执行以下操作：
 
 `ffmpeg -f u8 -ar 44.1k -ac 2 -i audio.bin audio.wav`
 
-To convert back to our binary format, do this:
+要转换回我们的二进制格式，请执行以下操作：
 
 `ffmpeg -i audio.wav -f u8 -ar 44.1k -ac 2 audio.bin`
 
-This should help you try the code with your own audio samples! This one is a short excerpt of [me](https://isometim.es) singing (argh!), with my wife playing woodwind. As an aside, I highly recommend checking out [the original track](https://www.youtube.com/watch?v=k1UoUNC3Wj0).
+这应该可以帮助你尝试使用自己的音频样本！这个是[我](https://isometim.es)唱歌（啊！）的一小段摘录，我的妻子演奏木管乐器。顺便说一句，我强烈推荐查看[原始曲目](https://www.youtube.com/watch?v=k1UoUNC3Wj0)。
 
-Testing playback using the CPU and PWM module
+使用CPU和PWM模块测试播放
 ---------------------------------------------
-I knew DMA transfers might be a tricky beast, so I began by just proving I could play audio to the jack output of the Raspberry Pi 4.
+我知道DMA传输可能是一个棘手的问题，所以我首先证明我可以在Raspberry Pi 4的插孔输出上播放音频。
 
-Looking at `main()`, you'll see that we first call `audio_init()`. This function ensures that PWM1 is correctly mapped. PWM is a technique used to control analogue devices using digital signals. Whilst digital signals are either on (1 - full power) or off (0 - no power), analogue signals may be an infinite number of values between 1 and 0. PWM fakes an analogue signal by applying power in quick pulses/bursts of regulated voltage. The resultant average voltage will end up looking roughly like an analogue signal, despite not being one. Clever, eh?
+查看`main()`，你会看到我们首先调用`audio_init()`。这个函数确保PWM1被正确映射。PWM是一种使用数字信号控制模拟设备的技术。虽然数字信号要么开启（1 - 全功率）要么关闭（0 - 无功率），但模拟信号可能是1和0之间的无限多个值。PWM通过以快速脉冲/爆发的方式施加调节电压来模拟模拟信号。尽管不是真正的模拟信号，但最终的平均电压看起来大致像模拟信号。聪明，对吧？
 
-These pulses/bursts do need to be highly accurate for this trick to work, and so we need a reliable clock source. Just like your kitchen clock ticks every second, so the oscillator on the Raspberry Pi 4 has a regular 'tick' - in this case, 54,000,000 times per second (54 MHz)! Our audio sample is at 44.1 KHz though, so we need to 'slow it down'. We do this by first stopping the clock, then setting a clock divisor, setting the PWM range, and enabling the clock again. In my code, I use 2 as the clock divisor (so we're down to 27 MHz) and set the range to 612 (0x264). Essentially, this means that our PWM module will move to a new sample every 27,000,000/612 times per second - roughly equivalent to 44.1 KHz, which just happens to be the sample rate of the included audio sample _audio.bin_ (I've included _audio.wav_ so you can listen normally on your laptop too!).
+这些脉冲/爆发确实需要高度准确才能让这个技巧发挥作用，所以我们需要一个可靠的时钟源。就像你的厨房时钟每秒滴答一次一样，Raspberry Pi 4上的振荡器有一个规律的'滴答'——在这种情况下，每秒54,000,000次（54 MHz）！不过，我们的音频样本是44.1 KHz，所以我们需要'放慢它'。我们通过首先停止时钟，然后设置时钟除数，设置PWM范围，然后再次启用时钟来做到这一点。在我的代码中，我使用2作为时钟除数（所以我们降到27 MHz）并将范围设置为612（0x264）。本质上，这意味着我们的PWM模块将每秒移动到一个新样本27,000,000/612次——大致相当于44.1 KHz，恰好是包含的音频样本_audio.bin_的采样率（我也包含了_audio.wav_，这样你也可以在笔记本电脑上正常听！）。
 
-We then enable the PWM module, telling it to wait for sample data on its FIFO input, and we're good to go. Until we start filling the buffer, no audio will play.
+然后我们启用PWM模块，告诉它在其FIFO输入上等待样本数据，我们就可以开始了。在我们开始填充缓冲区之前，不会播放任何音频。
 
-Hopefully you'll notice that we set both channel 0 and channel 1 up similarly. This is because we're working with a stereo sample.
+希望你会注意到我们类似地设置了通道0和通道1。这是因为我们正在处理立体声样本。
 
-Starting the playback
+开始播放
 ---------------------
-In `playaudio_cpu()` we use the CPU to drive our sample data into the FIFO buffer. The sample data is built into the kernel and referenced exactly as we did with the Bluetooth firmware file back in part7-bluetooth (we still haven't done SD card file access, sorry!).
+在`playaudio_cpu()`中，我们使用CPU将样本数据驱动到FIFO缓冲区中。样本数据被构建到内核中，并完全按照我们在part7-bluetooth中处理蓝牙固件文件的方式进行引用（抱歉，我们还没有完成SD卡文件访问）。
 
-The code is fairly self-documenting. We essentially check the FIFO buffer isn't full before we send the left channel byte and the right channel byte (stereo, remember!). If we see errors, we clear them as we go.
+代码是相当自文档化的。我们本质上在发送左声道字节和右声道字节之前检查FIFO缓冲区是否已满（记住是立体声！）。如果我们看到错误，我们会一边走一边清除它们。
 
-And that's it... The PWM will pick up the digital data in the buffer and send it, PWM-style (faking an analogue signal), at the right speed (thanks to our clock divisor/PWM range mastery), to the audio jack.
+就是这样... PWM将拾取缓冲区中的数字数据，并以正确的速度（感谢我们的时钟除数/PWM范围掌握）以PWM方式（模拟模拟信号）发送到音频插孔。
 
-Doing it with DMA
+使用DMA完成
 -----------------
-In `playaudio_dma()` our first challenge is that DMA transfers and FIFO registers are 4 bytes wide, so our single byte samples need some zero-padding. Because `data` is an `unsigned char *` and `safe` is (technically) an `unsigned int *`, we can do this copy with a simple _for loop_. You'll notice that `safe` is a memory location in RAM which we know to be beyond our program code (`SAFE_ADDRESS` is defined in _io.h_).
+在`playaudio_dma()`中，我们的第一个挑战是DMA传输和FIFO寄存器是4字节宽的，所以我们的单字节样本需要一些零填充。因为`data`是`unsigned char *`而`safe`（技术上）是`unsigned int *`，我们可以通过一个简单的_for循环_来完成这个复制。你会注意到`safe`是RAM中的一个内存位置，我们知道它超出了我们的程序代码（`SAFE_ADDRESS`在_io.h_中定义）。
 
-We then set up the DMA Control Block. This is an in-memory structure that will tell the DMA engine everything it needs to know to perform the transfer. This is very well-documented already, but worth pointing out is `DMA_DEST_DREQ` and `DMA_PERMAP_1`. These settings ensure that we use our previously-set hardware clock to 'pace' the transfer. If we didn't do this, the DMA engine would just get it done as fast as it could (and our audio wouldn't sound great!). `SRC_INC` simply tells the DMA engine to increment the source address throughout the transfer. We'll be keeping the destination address constant though, since we want it to always point to the PWM module's FIFO input. Note also the use of `PWM_LEGACY_BASE` rather than `PWM_BASE` to address this peripheral memory. This is another quirk of the Raspberry Pi 4 hardware!
+然后我们设置DMA控制块。这是一个内存中的结构，它将告诉DMA引擎执行传输所需的一切。这已经有很好的文档记录，但值得指出的是`DMA_DEST_DREQ`和`DMA_PERMAP_1`。这些设置确保我们使用之前设置的硬件时钟来'调节'传输。如果我们不这样做，DMA引擎只会尽可能快地完成它（我们的音频听起来不会很好！）。`SRC_INC`简单地告诉DMA引擎在整个传输过程中递增源地址。不过，我们将保持目标地址不变，因为我们希望它始终指向PWM模块的FIFO输入。还要注意使用`PWM_LEGACY_BASE`而不是`PWM_BASE`来寻址这个外设内存。这是Raspberry Pi 4硬件的另一个怪癖！
 
-Note finally how we set `.nextconbk` to 0x00. This tells the DMA engine that there is no more work to do after this job is complete. If we wanted to loop the audio sample infinitely (nobody needs that much of me singing!), we could simply set this to address the same control block structure again.
+最后注意我们如何将`.nextconbk`设置为0x00。这告诉DMA引擎在此作业完成后没有更多工作要做。如果我们想无限循环音频样本（没有人需要那么多我唱歌！），我们可以简单地将其设置为再次寻址相同的控制块结构。
 
-As we enable the DMA engine, playback begins. Notably, however, we're returned to `main()` immediately and the CPU can get on with other things, thereby meeting our design goal.
+当我们启用DMA引擎时，播放开始。值得注意的是，我们立即返回到`main()`，CPU可以继续做其他事情，从而达到我们的设计目标。
 
-Conclusion
+结论
 ----------
-We're now ready to integrate sound into our Breakout game. But rather than do that, let's go down a rabbit hole and see if we can't get CPU playback running on a separate core! I said it was hard, but I love a challenge.
+我们现在准备好将声音集成到我们的打砖块游戏中。但与其这样做，不如让我们深入探索，看看是否能让CPU播放在单独的核心上运行！我说过这很难，但我喜欢挑战。
 
-[Go to part10-multicore >](../part10-multicore)
+[前往part10-multicore >](../part10-multicore)

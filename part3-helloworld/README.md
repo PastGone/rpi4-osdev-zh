@@ -1,94 +1,94 @@
-Writing a "bare metal" operating system for Raspberry Pi 4 (Part 3)
+为 Raspberry Pi 4 编写「裸机」操作系统（第三部分）
 ===================================================================
 
-[< Go back to part2-building](../part2-building)
+[< 返回part2-building](../part2-building)
 
-Making something happen
+让事情发生
 -----------------------
 
-So far our OS produces only a black screen. How can we be sure that our code is actually running? Let's do something a bit more interesting to really demonstrate that we have control of the hardware.
+到目前为止，我们的操作系统只产生一个黑屏。我们怎么能确定我们的代码实际上在运行呢？让我们做一些更有趣的事情来真正证明我们控制了硬件。
 
-Usually, the first thing a software developer learns is to print "Hello world!" to the screen. In bare metal development however, printing to the screen can be quite a big challenge, so we're going to do something simpler to start with.
+通常，软件开发人员学到的第一件事是向屏幕打印"Hello world!"。然而，在裸机开发中，向屏幕打印可能是一个相当大的挑战，所以我们首先做一些更简单的事情。
 
-Introducing the UART
+介绍UART
 --------------------
 
-Perhaps the easiest way we can "send a message" from our OS is via the **UART** or serial communications circuit. UART stands for Universal Asynchronous Receiver/Transmitter and it's a very old and fairly simple interface that uses just two wires to communicate between two devices. Before USB came along, devices like mice, printers and modems were connected in this way. 
+也许我们可以从操作系统"发送消息"的最简单方法是通过**UART**或串行通信电路。UART代表通用异步收发器，它是一种非常古老且相当简单的接口，只使用两根线在两个设备之间通信。在USB出现之前，鼠标、打印机和调制解调器等设备都是以这种方式连接的。
 
-We're going to connect your dev machine directly to your RPi4 and have the RPi4 send the "Hello world!" message to your dev machine! Your dev machine will print it to the screen.
+我们将把你的开发机器直接连接到RPi4，并让RPi4向你的开发机器发送"Hello world!"消息！你的开发机器会将其打印到屏幕上。
 
-You will need:
+你需要：
 
- * A [USB to serial TTL cable](https://www.amazon.co.uk/gp/product/B01N4X3BJB/ref=ppx_yo_dt_b_asin_title_o00_s00?ie=UTF8&psc=1)
- * To [download and install drivers for the cable](https://www.silabs.com/products/development-tools/software/usb-to-uart-bridge-vcp-drivers)
- * To [download and install PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html) on your dev machine
- * If you're using a Mac, I'd recommend [installing Serial Tools](https://apps.apple.com/gb/app/serialtools/id611021963?mt=12) as an alternative to PuTTY
+* 一根[USB转串口TTL线](https://www.amazon.co.uk/gp/product/B01N4X3BJB/ref=ppx_yo_dt_b_asin_title_o00_s00?ie=UTF8&psc=1)
+* [下载并安装电缆驱动](https://www.silabs.com/products/development-tools/software/usb-to-uart-bridge-vcp-drivers)
+* 在你的开发机器上[下载并安装PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html)
+* 如果你使用Mac，我建议[安装Serial Tools](https://apps.apple.com/gb/app/serialtools/id611021963?mt=12)作为PuTTY的替代
 
-If you'd like to read up on serial communcation before we start, I recommend looking at the [SparkFun website](https://learn.sparkfun.com/tutorials/serial-communication/all).
+如果你想在开始前阅读有关串行通信的内容，我建议查看[SparkFun网站](https://learn.sparkfun.com/tutorials/serial-communication/all)。
 
-Connecting the cable
+连接电缆
 --------------------
 
-If you have the drivers installed, go ahead and connect the cable to a spare USB port on your dev machine. Very little will happen, but if you now open Control Panel, click on Device Manager and open the Ports section, you should see a "Prolific" entry. That tells us that your cable is working correctly.
+如果你已安装驱动程序，请继续将电缆连接到开发机器上的一个空闲USB端口。几乎不会发生什么事情，但如果你现在打开控制面板，点击设备管理器并打开端口部分，你应该会看到一个"Prolific"条目。这告诉我们你的电缆工作正常。
 
-Here's what my machine looks like:
+这是我的机器的样子：
 
-![Windows Control Panel with cable installed](images/3-helloworld-ctlpanel.png)
+![Windows控制面板安装了电缆](images/3-helloworld-ctlpanel.png)
 
-Make a note of the COMx number in brackets after the Prolific entry - in my case, that's **COM5**.
+记下Prolific条目后括号中的COMx编号——在我的例子中，是**COM5**。
 
-The same cable will work on a Mac without the need to install any drivers.
+同样的电缆在Mac上无需安装任何驱动程序即可工作。
 
-Now we need to look at the RPi4 to identify how to connect the other end of the cable. You'll be looking for the **GPIO pins**, all 40 of them, which are just above the Raspberry Pi copyright notice. 
+现在我们需要查看RPi4，确定如何连接电缆的另一端。你会找到**GPIO引脚**，共40个，就在Raspberry Pi版权声明的上方。
 
-The diagram below shows where you need to make connections. The cable I recommended has breakout leads that are colour-coded as follows:
+下图显示了你需要连接的位置。我推荐的电缆有颜色编码的分线：
 
- * BLACK = Ground
- * RED = +5v Power
- * GREEN = TX (transmits from USB port to RPi4)
- * WHITE = RX (receives to USB port from RPi4)
+* BLACK = 接地
+* RED = +5v电源
+* GREEN = TX（从USB端口传输到RPi4）
+* WHITE = RX（从RPi4接收至USB端口）
 
-The Ground lead (BLACK in my case) hooks over the RPi4's Ground pin (Pin 6), the RX lead (WHITE) over TXD (GPIO 14/Pin 8) and the TX lead (GREEN) over RXD (GPIO 15/Pin 10). Note how it's necessary to cross RX and TX, i.e. connect RX to TX and vice versa. As we are powering the RPi4 using a dedicated power supply, make sure you **don't connect the RED connector**.
+接地线（在我的例子中是黑色）连接到RPi4的接地引脚（引脚6），RX线（白色）连接到TXD（GPIO 14/引脚8），TX线（绿色）连接到RXD（GPIO 15/引脚10）。请注意，RX和TX需要交叉连接，即将RX连接到TX，反之亦然。由于我们使用专用电源为RPi4供电，请确保你**不要连接红色连接器**。
 
-![GPIO location](images/3-helloworld-pinloc.png)
+![GPIO位置](images/3-helloworld-pinloc.png)
 
-Here's my RPi4 with the cable connected correctly:
+这是我的RPi4正确连接电缆的样子：
 
-![GPIO photo with cable connected](images/3-helloworld-cable.jpg)
+![连接电缆的GPIO照片](images/3-helloworld-cable.jpg)
 
-Setting up PuTTY
+设置PuTTY
 ----------------
 
- * Run PuTTY on your dev machine
- * Click on the "Session" category in the left-hand pane
- * Set "Connection type" to Serial
- * Click on "Serial" under the "Connection" category in the left-hand pane
- * Set the "Serial line to connect to" to the COMx number we found above, mine was COM5
- * Set the "Speed (baud)" to 115200
- * Ensure "Data bits" is 8, "Stop bits" is 1, "Parity" is None and "Flow control" is None
- * Click back to the "Session" category in the left-hand pane and you should see the changed settings
- * Save these settings by typing a name e.g. "Raspberry Pi 4" in the textbox under "Saved Sessions" and clicking Save
- * You can now start the connection by double-clicking on "Raspberry Pi 4" - if you do, all you will see for now is an empty black window
+* 在你的开发机器上运行PuTTY
+* 点击左侧窗格中的"Session"类别
+* 将"Connection type"设置为Serial
+* 点击左侧窗格中"Connection"类别下的"Serial"
+* 将"Serial line to connect to"设置为我们上面找到的COMx编号，我的是COM5
+* 将"Speed (baud)"设置为115200
+* 确保"Data bits"为8，"Stop bits"为1，"Parity"为None，"Flow control"为None
+* 点击左侧窗格中的"Session"类别，你应该会看到更改的设置
+* 通过在"Saved Sessions"下的文本框中输入名称（例如"Raspberry Pi 4"）并点击Save来保存这些设置
+* 你现在可以通过双击"Raspberry Pi 4"来启动连接——如果你这样做，目前你只会看到一个空的黑色窗口
 
-If you're using a different terminal emulator, you'll need to use the same settings as above following the application vendor's instructions on how to use the software. For example, Serial Tools on Mac is explained [here](https://www.w7ay.net/site/Applications/Serial%20Tools/).
+如果你使用不同的终端模拟器，你需要按照应用程序供应商的软件使用说明使用上述相同设置。例如，Mac上的Serial Tools在[这里](https://www.w7ay.net/site/Applications/Serial%20Tools/)有说明。
 
-A quick config.txt change
+快速修改config.txt
 -------------------------
 
-Do you remember that, back in the first tutorial, I had to edit the _config.txt_ file on the SD card to get Raspbian up on my TV screen? Now we need to add a line to ensure that our UART connection will be reliable.
+你还记得在第一个教程中，我必须编辑SD卡上的_config.txt_文件才能让Raspbian在我的电视屏幕上运行吗？现在我们需要添加一行来确保我们的UART连接可靠。
 
-UART communication is a lot to do with timing, and it's important that both ends agree on the exact speed of data being sent/received. When we set up PuTTY, we told it to communicate at 115200 baud, and we'll need the RPi4 to communicate at the same rate. As it is, we can't be sure that it will - it might communicate faster or slower depending on how busy the CPU is.
+UART通信在很大程度上与计时有关，两端就发送/接收数据的确切速度达成一致非常重要。当我们设置PuTTY时，我们告诉它以115200波特率通信，我们需要RPi4以相同的速率通信。事实上，我们不能确定它会这样做——它可能会根据CPU的繁忙程度而通信得更快或更慢。
 
-Add this line to your _config.txt_ to resolve this:
+添加这行到你的_config.txt_来解决这个问题：
 
 ```c
 core_freq_min=500
 ```
 
-Getting the UART going in code
+在代码中启用UART
 ------------------------------
 
-First off, let's update _kernel.c_ to make a few new calls:
+首先，让我们更新_kernel.c_来进行一些新的调用：
 
 ```c
 #include "io.h"
@@ -101,20 +101,20 @@ void main()
 }
 ```
 
-We start by including a new **header file**, _io.h_. This allows us to write some new code outside of the _kernel.c_ file, and call it in when we need it.
+我们首先包含一个新的**头文件**_io.h_。这允许我们在_kernel.c_文件之外编写一些新代码，并在需要时调用它。
 
-You'll note that our `main()` routine has also some new lines. First we call a function to initialise the UART, and then we call another function to write "Hello world!" to it. The weird character at the end of the string - `\n` - is how we add a newline to the end of our text, just like pressing Enter in a word processor!
+你会注意到我们的`main()`例程也有一些新行。首先我们调用一个函数来初始化UART，然后我们调用另一个函数来向它写入"Hello world!"。字符串末尾的奇怪字符——`\n`——是我们如何在文本末尾添加换行符，就像在文字处理器中按Enter键一样！
 
-Let's now create _io.h_ with the following contents:
+现在让我们创建包含以下内容的_io.h_：
 
 ```c
 void uart_init();
 void uart_writeText(char *buffer);
 ```
 
-This is a very short file with two **function definitions**. `uart_init()` is a **void function** with no **parameters**, just like `main()` is. This means that it doesn't need any data from the caller to do its job, and it doesn't send any data back to the caller when it's done. You'll note that `uart_writeText` is also a void function, but it does take a parameter since we need to tell it what text to write!
+这是一个非常短的文件，包含两个**函数定义**。`uart_init()`是一个**无返回值函数**，没有**参数**，就像`main()`一样。这意味着它不需要调用者提供任何数据来完成其工作，并且完成后不会向调用者发送任何数据。你会注意到`uart_writeText`也是一个无返回值函数，但它确实需要一个参数，因为我们需要告诉它要写什么文本！
 
-We'll put the actual code for these functions in another new file, _io.c_:
+我们将这些函数的实际代码放在另一个新文件_io.c_中：
 
 ```c
 // GPIO
@@ -215,19 +215,19 @@ void uart_writeText(char *buffer) {
 }
 ```
 
-You'll see that the two functions we defined in our _io.h_ header file now have some actual code, along with some other supporting functions. I'll explain what's going on in this code in the next tutorial, but let's skip straight to the action now!
+你会看到我们在_io.h_头文件中定义的两个函数现在有了一些实际代码，以及一些其他支持函数。我将在下一个教程中解释这段代码中发生了什么，但现在让我们直接进入操作！
 
-With your new _io.c_ and _io.h_ files in place, as well as the changes to _kernel.c_ made, run `make` to build your new OS. 
+有了新的_io.c_和_io.h_文件，以及对_kernel.c_所做的更改，运行`make`来构建你的新操作系统。
 
-Then: 
+然后：
 
- * Copy the newly built _kernel8.img_ to the SD card, and then put the SD card into your RPi4
- * Make sure your USB to serial TTL cable is connected correctly
- * Run your terminal emulator (e.g. PuTTY) and connect to the "Raspberry Pi 4" session you set up earlier - you should see an empty black screen and no errors
- * Power on your RPi4
+* 将新构建的_kernel8.img_复制到SD卡，然后将SD卡放入你的RPi4
+* 确保你的USB转串口TTL线连接正确
+* 运行你的终端模拟器（例如PuTTY）并连接到你之前设置的"Raspberry Pi 4"会话——你应该看到一个空的黑屏且没有错误
+* 打开RPi4的电源
 
-If you've followed all these instructions, after a few seconds you'll see "Hello world!" appear in the terminal emulator window on your dev machine.
+如果你遵循了所有这些说明，几秒钟后你会在开发机器上的终端模拟器窗口中看到"Hello world!"出现。
 
-_It's a message from your RPi4 to say that your OS is working. Proof at last!_
+_这是来自你的RPi4的一条消息，告诉你你的操作系统正在工作。终于有证据了！_
 
-[Go to part4-miniuart >](../part4-miniuart)
+[前往part4-miniuart >](../part4-miniuart)

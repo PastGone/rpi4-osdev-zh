@@ -1,71 +1,71 @@
-Writing a "bare metal" operating system for Raspberry Pi 4 (Part 1)
+为 Raspberry Pi 4 编写「裸机」操作系统（第一部分）
 ===================================================================
 
-[< Go back to introduction](https://www.rpi4os.com/)
+[< 返回简介](https://www.rpi4os.com/)
 
-How do we code?
+我们如何编写代码？
 ---------------
 
-We tell the RPi4 what to do by writing code. You may know that code ultimately ends up as a series of 0's and 1's (binary). You'll be pleased to know, however, that we don't need to write it like this, otherwise we'd easily lose track of what was going on! In fact, it's one of the jobs of the compiler to convert human-readable language into those 0's and 1's.
+我们通过编写代码来告诉RPi4该做什么。你可能知道代码最终会变成一系列0和1（二进制）。不过，你会很高兴知道我们不需要这样编写代码，否则我们很容易迷失方向！实际上，编译器的任务之一就是将人类可读的语言转换成那些0和1。
 
-To get going we need to understand two languages: **assembly language** and **C**. Whilst C will likely be recognisable to most modern software developers, assembly language is "spoken" by fewer folks. It's a lower-level language that most closely resembles how the CPU "thinks" and it therefore gives us a lot of control, whereas C brings us into a higher-level, human-readable world. We lose a little control to the compiler though, but for our purposes I think we can trust it!
+要开始编写代码，我们需要理解两种语言：**汇编语言**和**C语言**。虽然C语言可能为大多数现代软件开发人员所熟悉，但汇编语言只有少数人会"说"。它是一种低级语言，最接近CPU的"思维"方式，因此它给我们很多控制权，而C语言则将我们带入一个更高层次、人类可读的世界。不过我们会向编译器让出一些控制权，但就我们的目的而言，我认为我们可以信任它！
 
-We will need to start out in assembly language, but there isn't much to write before we can then pick up in C.
+我们需要从汇编语言开始，但在我们可以用C语言继续之前，不需要写太多汇编代码。
 
-A note about this tutorial
+关于本教程的说明
 --------------------------
 
-This tutorial is not intended to teach you how to code in assembly language or C. There are plenty of good resources on these topics and I am not an expert/authority! I will therefore be assuming some knowledge along the way. Please do read around the topics that I introduce if you need/want to.
+本教程并非旨在教你如何用汇编语言或C语言编码。关于这些主题有很多很好的资源，我也不是专家/权威！因此我将假设你在阅读过程中具备一些知识。如果你需要/想要了解我介绍的主题，请务必阅读相关内容。
 
-Bootstrapping
+引导程序（Bootstrapping）
 -------------
 
-The first code that the RPi4 will run will need to be written in assembly language. It makes some checks, does some setup and launches us into our first C program - the **kernel**.
+RPi4运行的第一部分代码需要用汇编语言编写。它进行一些检查，做一些设置，然后启动我们的第一个C程序——**内核**。
 
- * The Arm Cortex-A72 has four cores. We only want our code to run on the master core, so we check the processor ID and either run our code (master) or hang in an infinite loop (slave).
- * We need to tell our OS how to access the **stack**. I think of the stack as temporary storage space used by currently-executing code, like a scratchpad. We need to set memory aside for it and store a pointer to it.
- * We also need to initialise the BSS section. This is the area in memory where uninitialised variables will be stored. It's more efficient to initialise everything to zero here, rather than take up space in our kernel image doing it explicitly.
- * Finally, we can jump to our main() routine in C!
+* Arm Cortex-A72有四个核心。我们只希望我们的代码在主核心上运行，所以我们检查处理器ID，如果是主核心就运行我们的代码，如果是从核心就挂起在无限循环中。
+* 我们需要告诉操作系统如何访问**栈**。我把栈看作当前执行代码使用的临时存储空间，就像一个草稿本。我们需要为它预留内存空间并存储一个指向它的指针。
+* 我们还需要初始化BSS段。这是内存中存储未初始化变量的区域。在这里将所有内容初始化为零效率更高，而不是在我们的内核映像中显式地占用空间来做这件事。
+* 最后，我们可以跳转到C语言中的main()例程！
 
-Read and understand the code below and save it as _boot.S_. I suggest using the [Arm Programmer's Guide](https://developer.arm.com/documentation/den0024/a/) as a reference.
+阅读并理解下面的代码，并将其保存为_boot.S_。我建议使用[Arm程序员指南](https://developer.arm.com/documentation/den0024/a/)作为参考。
 
 ```c
-.section ".text.boot"  // Make sure the linker puts this at the start of the kernel image
+.section ".text.boot"  // 确保链接器将此放在内核映像的开头
 
-.global _start  // Execution starts here
+.global _start  // 从这里开始执行
 
 _start:
-    // Check processor ID is zero (executing on main core), else hang
+    // 检查处理器ID是否为零（在主核心上执行），否则挂起
     mrs     x1, mpidr_el1
     and     x1, x1, #3
     cbz     x1, 2f
-    // We're not on the main core, so hang in an infinite wait loop
+    // 我们不在主核心上，所以挂起在无限等待循环中
 1:  wfe
     b       1b
-2:  // We're on the main core!
+2:  // 我们在主核心上！
 
-    // Set stack to start below our code
+    // 将栈设置为从代码下方开始
     ldr     x1, =_start
     mov     sp, x1
 
-    // Clean the BSS section
-    ldr     x1, =__bss_start     // Start address
-    ldr     w2, =__bss_size      // Size of the section
-3:  cbz     w2, 4f               // Quit loop if zero
+    // 清理BSS段
+    ldr     x1, =__bss_start     // 起始地址
+    ldr     w2, =__bss_size      // 段大小
+3:  cbz     w2, 4f               // 如果为零则退出循环
     str     xzr, [x1], #8
     sub     w2, w2, #1
-    cbnz    w2, 3b               // Loop if non-zero
+    cbnz    w2, 3b               // 如果非零则循环
 
-    // Jump to our main() routine in C (make sure it doesn't return)
+    // 跳转到C语言中的main()例程（确保它不会返回）
 4:  bl      main
-    // In case it does return, halt the master core too
+    // 万一返回，也挂起主核心
     b       1b
 ```
 
-And now we're in C
+现在我们进入C语言
 ------------------
 
-You will likely note that the `main()` routine is as yet undefined. We can write this in C (save it as _kernel.c_), keeping it very simple for now:
+你可能会注意到`main()`例程尚未定义。我们可以用C语言编写它（保存为_kernel.c_），现在保持非常简单：
 
 ```c
 void main()
@@ -74,17 +74,17 @@ void main()
 }
 ```
 
-This simply spins us in an infinite loop!
+这只是让我们在一个无限循环中旋转！
 
-Linking it all together
+将它们链接在一起
 -----------------------
 
-We've written code in two different languages. Somehow we need to glue these together, ensuring that the created image will be executed in the way that we intend. We use a **linker script** for this. The linker script will also define our BSS-related labels (perhaps you were already wondering where they get defined?). I suggest you save the following as _link.ld_:
+我们用两种不同的语言编写了代码。我们需要以某种方式将它们粘合在一起，确保生成的映像将按照我们预期的方式执行。我们使用**链接脚本**来完成这项工作。链接脚本还将定义我们的BSS相关标签（也许你已经在想它们在哪里定义了？）。我建议你将以下内容保存为_link.ld_：
 
 ```c
 SECTIONS
 {
-    . = 0x80000;     /* Kernel load address for AArch64 */
+    . = 0x80000;     /* AArch64的内核加载地址 */
     .text : { KEEP(*(.text.boot)) *(.text .text.* .gnu.linkonce.t*) }
     .rodata : { *(.rodata .rodata.* .gnu.linkonce.r*) }
     PROVIDE(_data = .);
@@ -103,8 +103,8 @@ SECTIONS
 __bss_size = (__bss_end - __bss_start)>>3;
 ```
 
-Writing linker scripts is [worth investigating](http://ftp.gnu.org/old-gnu/Manuals/ld-2.9.1/html_mono/ld.html#SEC6) but, for our purposes, all you need to know is that by referencing `.text.boot` first and using the `KEEP()`, we ensure the `.text` section starts with our assembly code. That means our first instruction starts at 0x80000, which is exactly where the RPi4 will look for it when it boots. Our code will be run.
+编写链接脚本[值得研究](http://ftp.gnu.org/old-gnu/Manuals/ld-2.9.1/html_mono/ld.html#SEC6)，但就我们的目的而言，你只需要知道通过首先引用`.text.boot`并使用`KEEP()`，我们确保`.text`段以我们的汇编代码开头。这意味着我们的第一条指令从0x80000开始，这正是RPi4启动时会查找的位置。我们的代码将被运行。
 
-_Now you're ready to compile and then boot your OS!_
+_现在你准备好编译并启动你的操作系统了！_
 
-[Go to part2-building >](../part2-building)
+[前往part2-building >](../part2-building)

@@ -1,15 +1,15 @@
-Writing a "bare metal" operating system for Raspberry Pi 4 (Part 10)
+为 Raspberry Pi 4 编写「裸机」操作系统（第十部分）
 ====================================================================
 
-[< Go back to part9-sound](../part9-sound)
+[< 返回part9-sound](../part9-sound)
 
-Using multiple CPU cores
+使用多个CPU核心
 ------------------------
-Instead of a background DMA transfer, I suggested that we might use a second CPU core to play the audio whilst our main core continues on. I also said it would be hard on the Raspberry Pi 4... and it is.
+我建议我们可以使用第二个CPU核心来播放音频，同时我们的主核心继续运行，而不是进行后台DMA传输。我也说过在Raspberry Pi 4上这很难...确实如此。
 
-I wrote this code as I referenced [Sergey Matyukevich's work](https://github.com/s-matyukevich/raspberry-pi-os/tree/master/src/lesson02), for which I am very grateful. It did need some modification to ensure the secondary cores are woken up when the time is right. This code isn't particularly "safe" yet, but it's good enough to prove the concept in principle.
+我参考了[Sergey Matyukevich的工作](https://github.com/s-matyukevich/raspberry-pi-os/tree/master/src/lesson02)编写了这段代码，对此我非常感激。它确实需要一些修改，以确保辅助核心在适当的时候被唤醒。这段代码还不是特别"安全"，但它足以在原则上证明这个概念。
 
-You'll need to modify your _config.txt_ file on your SD card to include the following lines:
+你需要修改SD卡上的_config.txt_文件，包含以下行：
 
 ```c
 kernel_old=1
@@ -17,17 +17,17 @@ disable_commandline_tags=1
 arm_64bit=1
 ```
 
-Perhaps the most important here is the `kernel_old=1` directive. This tells the bootloader to expect the kernel at offset `0x00000` instead of `0x80000`. As such, we'll need to remove this line from our _link.ld_:
+也许这里最重要的是`kernel_old=1`指令。这告诉bootloader在偏移量`0x00000`而不是`0x80000`处期望内核。因此，我们需要从_link.ld_中删除这一行：
 
 ```c
 . = 0x80000;     /* Kernel load address for AArch64 */
 ```
 
-It also won't lock the secondary cores for us on boot, so we will still be able to access them (more on this later).
+它也不会在启动时为我们锁定辅助核心，所以我们仍然能够访问它们（稍后会详细介绍）。
 
-Setting up the main timer
+设置主计时器
 -------------------------
-There is one other important piece of setup that we'll need to take care of ourselves now - establishing the main timer. We add the following `#define` block to the top of _boot.S_:
+现在我们需要自己处理另一个重要的设置——建立主计时器。我们在_boot.S_的顶部添加以下`#define`块：
 
 ```c
 #define LOCAL_CONTROL   0xff800000
@@ -36,21 +36,21 @@ There is one other important piece of setup that we'll need to take care of ours
 #define MAIN_STACK      0x400000
 ```
 
-`LOCAL_CONTROL` is the address of the ARM_CONTROL register. At the top of our `_start:` section we'll set this to zero, effectively telling the ARM main timer to use the crystal clock as a source and set the increment value to 1:
+`LOCAL_CONTROL`是ARM_CONTROL寄存器的地址。在我们的`_start:`部分的顶部，我们将其设置为零，实际上告诉ARM主计时器使用晶体时钟作为源，并将增量值设置为1：
 
 ```c
-ldr     x0, =LOCAL_CONTROL   // Sort out the timer
+ldr     x0, =LOCAL_CONTROL   // 处理计时器
 str     wzr, [x0]
 ```
 
-We go on to set the prescaler - think of this as another clock divisor equivalent. Setting it thus will effectively make this divisor 1 (i.e. it will have no effect):
+我们继续设置预分频器——把它想象成另一个等效的时钟除数。这样设置它实际上会使这个除数为1（即它不会有任何效果）：
 
 ```c
 mov     w1, 0x80000000
 str     w1, [x0, #(LOCAL_PRESCALER - LOCAL_CONTROL)]
 ```
 
-You should remember the expected oscillator frequency of 54 MHz from part9. We set this with the following lines:
+你应该从part9记住预期的振荡器频率54 MHz。我们用以下行设置它：
 
 ```c
 ldr     x0, =OSC_FREQ
@@ -58,51 +58,51 @@ msr     cntfrq_el0, x0
 msr     cntvoff_el2, xzr
 ```
 
-Our timer is now as we need it.
+我们的计时器现在已经按我们需要的方式设置好了。
 
-Booting the main core
+启动主核心
 ---------------------
-We go on to check the processor ID as we always have. If it's zero then we're on the main core and we jump forward to label `2:`. This time, we have to set our stack pointer slightly differently. We can't set it below our code, because it's at 0x00000 now! Instead, we use the address we defined earlier as `MAIN_STACK` at the top:
+我们继续像往常一样检查处理器ID。如果它是零，那么我们在主核心上，并跳转到标签`2:`。这次，我们必须稍微不同地设置我们的堆栈指针。我们不能在代码下方设置它，因为它现在在0x00000！相反，我们使用我们之前定义为顶部的`MAIN_STACK`地址：
 
 ```c
-// Set stack to start somewhere safe
+// 将堆栈设置在安全的地方开始
 mov     sp, #MAIN_STACK
 ```
 
-We then continue to clear the BSS as always, and jump to our `main()` function in C code. If it does happen to return, we branch back to `1:` to halt the core.
+然后我们继续像往常一样清除BSS，并跳转到我们C代码中的`main()`函数。如果它确实返回，我们分支回`1:`来停止核心。
 
-Setting up the secondary cores
+设置辅助核心
 ------------------------------
-Previously, we've unequivocally halted the other cores by spinning them in an infinite loop at label `1:`. Instead, each core will now watch a value at its own designated memory address, initialised to zero at the bottom of _boot.S_, and named as `spin_cpu0-3`. If this value goes non-zero, then that's a signal to wake up and jump to that memory location, executing whatever code is there. Once that code returns, we start looping and watching all over again.
+以前，我们通过在标签`1:`处的无限循环中旋转其他核心来明确地停止它们。相反，现在每个核心将在其自己指定的内存地址处监视一个值，该值在_boot.S_的底部初始化为零，并命名为`spin_cpu0-3`。如果这个值变为非零，那么这是一个唤醒并跳转到该内存位置的信号，执行那里的任何代码。一旦该代码返回，我们再次开始循环和监视。
 
 ```c
-    adr     x5, spin_cpu0        // Base watch address
+    adr     x5, spin_cpu0        // 基础监视地址
 1:  wfe
-    ldr     x4, [x5, x1, lsl #3] // Add (8 * core_number) to the base address and load what's there into x4
-    cbz     x4, 1b               // Loop if zero, otherwise continue
+    ldr     x4, [x5, x1, lsl #3] // 将(8 * core_number)添加到基础地址，并将那里的内容加载到x4
+    cbz     x4, 1b               // 如果为零则循环，否则继续
 
-    ldr     x2, =__stack_start   // Get ourselves a fresh stack - location depends on CPU core asking
-    lsl     x1, x1, #9           // Multiply core_number by 512
-    add     x3, x2, x1           // Add to the address
+    ldr     x2, =__stack_start   // 获取一个新的堆栈 - 位置取决于请求的CPU核心
+    lsl     x1, x1, #9           // 将core_number乘以512
+    add     x3, x2, x1           // 添加到地址
     mov     sp, x3
 
-    mov     x0, #0               // Zero registers x0-x3, just in case
+    mov     x0, #0               // 清零寄存器x0-x3，以防万一
     mov     x1, #0
     mov     x2, #0
     mov     x3, #0
-    br      x4                   // Run the code at the address in x4
+    br      x4                   // 运行x4中地址处的代码
     b       1b
 ```
 
-You'll notice that we've set our stack pointer elsewhere, and each core has its own designated stack address. This is to avoid it conflicting with activity on the other cores. We establish the necessary pointers to a safe memory area by adding the following to our _link.ld_:
+你会注意到我们在其他地方设置了堆栈指针，每个核心都有自己指定的堆栈地址。这是为了避免与其他核心上的活动冲突。我们通过在_link.ld_中添加以下内容来建立指向安全内存区域的必要指针：
 
 ```c
 .cpu1Stack :
 {
-    . = ALIGN(16);               // 16 bit aligned
-    __stack_start  = .;          // Pointer to the start
-    . = . + 512;                 // 512 bytes long
-    __cpu1_stack  = .;           // Pointer to the end (stack grows down)
+    . = ALIGN(16);               // 16位对齐
+    __stack_start  = .;          // 指向开始的指针
+    . = . + 512;                 // 512字节长
+    __cpu1_stack  = .;           // 指向末尾的指针（堆栈向下增长）
 }
 .cpu2Stack :
 {
@@ -116,13 +116,13 @@ You'll notice that we've set our stack pointer elsewhere, and each core has its 
 }
 ```
 
-Phew! That's it for the bootloader code. If you use this new bootloader with your existing code, the RPi4 should boot and run as before. We now need to go on to implement the signalling required to execute code on these secondary cores which are now at our disposal.
+呼！bootloader代码就这样了。如果你使用这个新的bootloader和你现有的代码，RPi4应该像以前一样启动和运行。我们现在需要继续实现所需的信号传递，以在这些现在可供我们使用的辅助核心上执行代码。
 
-Waking the secondary cores from C
+从C唤醒辅助核心
 ---------------------------------
-Check out _multicore.c_.
+查看_multicore.c_。
 
-Here we essentially duplicate two functions for each core:
+在这里，我们本质上为每个核心复制两个函数：
 
 ```c
 void start_core1(void (*func)(void))
@@ -137,27 +137,27 @@ void clear_core1(void)
 }
 ```
 
-The first, `start_core1()`, uses the `store32()` function (also in _multicore.c_) to write an address to our predefined `spin_cpu1` memory location. This takes it non-zero, telling core 1 where to jump to when it wakes. Since we put it to sleep with a `wfe` (Wait For Event) instruction, we use a `sev` (Set Event) instruction to wake it again.
+第一个`start_core1()`使用`store32()`函数（也在_multicore.c_中）将一个地址写入我们预定义的`spin_cpu1`内存位置。这使它变为非零，告诉核心1醒来时跳到哪里。既然我们用`wfe`（等待事件）指令让它睡眠，我们使用`sev`（设置事件）指令再次唤醒它。
 
-The second, `clear_core1()`, can be used by an executing function to reset `spin_cpu1` to zero, so the core won't jump again when the executing code returns.
+第二个`clear_core1()`可以被执行函数用来将`spin_cpu1`重置为零，这样当执行代码返回时，核心不会再次跳转。
 
-More main()'s please!
+更多的main()！
 ---------------------
-Finally, we look at _kernel.c_, where we now have a single `main()`, but also:
+最后，我们看一下_kernel.c_，我们现在有一个单一的`main()`，但还有：
 
- * `core0_main()` - increments a progress bar every 1 second (roughly)
- * `core1_main()` - has a two-step progress bar, playing an audio sample using the CPU at 50%, jumping straight to 100% when done
- * `core2_main()` - sets a DMA audio transfer, then increments a progress bar every half second (roughly), jumping to 100% as playback finishes
- * ... and `core3_main()` - increments a progress bar every quarter second (roughly)
+* `core0_main()` - 每1秒（大约）增加一个进度条
+* `core1_main()` - 有一个两步进度条，使用CPU在50%时播放音频样本，完成时直接跳到100%
+* `core2_main()` - 设置DMA音频传输，然后每半秒（大约）增加一个进度条，在播放完成时跳到100%
+* ...以及`core3_main()` - 每四分之一秒（大约）增加一个进度条
 
-`main()` is core 0's entry point, which ultimately falls through to `core0_main()`, but not before it kicks off `core3_main()` and `core1_main()` by passing them to their respective start functions. When `core1_main()` finishes, it kicks off `core2_main()`.
+`main()`是核心0的入口点，最终会执行到`core0_main()`，但在此之前它通过将`core3_main()`和`core1_main()`传递给它们各自的启动函数来启动它们。当`core1_main()`完成时，它启动`core2_main()`。
 
-_As you run this, you'll see that these functions run in parallel on their respective cores. Welcome to symmetric multi-processing!_
+_当你运行这个时，你会看到这些函数在各自的核心上并行运行。欢迎来到对称多处理！_
 
-**If all you see on boot is the rainbow screen, try first updating your firmware using** `rpi-update` **from Raspbian.**
+**如果启动时你只看到彩虹屏幕，请尝试首先使用Raspbian中的`rpi-update`更新你的固件。**
 
-![Code now running on all four cores of the Raspberry Pi 4](images/10-multicore-running.jpg)
+![代码现在在Raspberry Pi 4的所有四个核心上运行](images/10-multicore-running.jpg)
 
-Coming up in part 11, we'll put all of this work together for a multi-core version of our Breakout game.
+在第11部分中，我们将把所有这些工作整合在一起，创建我们打砖块游戏的多核版本。
 
-[Go to part11-breakout-smp >](../part11-breakout-smp)
+[前往part11-breakout-smp >](../part11-breakout-smp)
